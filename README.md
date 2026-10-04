@@ -20,7 +20,7 @@ Add the package to your project's `Packages/manifest.json`:
 ```json
 {
   "dependencies": {
-    "com.cfomodz.livechat": "https://github.com/Cfomodz/unity-livechat.git#v0.1.0"
+    "com.cfomodz.livechat": "https://github.com/Cfomodz/unity-livechat.git#v0.1.1"
   }
 }
 ```
