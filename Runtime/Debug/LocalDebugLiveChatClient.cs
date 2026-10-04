@@ -205,6 +205,26 @@ namespace LiveChat
             for (int i = 0; i < linesToShow; i++)
                 GUI.Label(new Rect(x + padding, startY + i * lineHeight, width - padding * 2f, lineHeight), _log[startIndex + i], _logStyle);
 
+            // Check keys before drawing the text field: GUI.TextField uses up the Enter key event,
+            // so checking afterwards never sees it
+            Event e = Event.current;
+            if (e != null && e.type == EventType.KeyDown && GUI.GetNameOfFocusedControl() == InputControlName)
+            {
+                if (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter)
+                {
+                    SimulateIncoming(_input);
+                    _input = string.Empty;
+                    _focusInput = true;
+                    e.Use();
+                }
+                else if (e.keyCode == KeyCode.Escape)
+                {
+                    // Release the box so games' keyboard shortcuts work again; click it to type
+                    GUIUtility.keyboardControl = 0;
+                    e.Use();
+                }
+            }
+
             GUI.SetNextControlName(InputControlName);
             _input = GUI.TextField(new Rect(x, y + logHeight + 4f, width, inputHeight), _input, 200, _inputStyle);
 
@@ -212,16 +232,6 @@ namespace LiveChat
             {
                 GUI.FocusControl(InputControlName);
                 _focusInput = false;
-            }
-
-            Event e = Event.current;
-            if (e != null && e.type == EventType.KeyDown && (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter)
-                && GUI.GetNameOfFocusedControl() == InputControlName)
-            {
-                SimulateIncoming(_input);
-                _input = string.Empty;
-                _focusInput = true;
-                e.Use();
             }
         }
 
