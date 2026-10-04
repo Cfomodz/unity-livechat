@@ -34,6 +34,9 @@ their dependencies) under `Runtime/Plugins/TwitchLib/`. If your project already 
 any of these DLLs in `Assets/`, delete them. Two copies of the same DLL cause
 "Multiple precompiled assemblies with the same name" errors.
 
+TwitchLib needs Newtonsoft.Json, so the package depends on Unity's
+`com.unity.nuget.newtonsoft-json`; Package Manager installs it for you.
+
 The DLLs are auto-referenced, so your project's own scripts can keep using
 `TwitchLib.Api` etc. directly.
 

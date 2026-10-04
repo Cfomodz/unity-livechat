@@ -9,5 +9,6 @@
   built-in `!help`, `!ping` and `!echo` handlers.
 - `LocalDebugLiveChatClient`: on-screen fake chat for testing without going live
   (merged from the Dig Dug and Pickaxe mini-games' copies).
-- Ships the TwitchLib DLLs under `Runtime/Plugins/TwitchLib/`.
+- Ships the TwitchLib DLLs under `Runtime/Plugins/TwitchLib/` and depends on
+  `com.unity.nuget.newtonsoft-json`, which TwitchLib needs.
 - EditMode tests for `ChatCommandParser`.
