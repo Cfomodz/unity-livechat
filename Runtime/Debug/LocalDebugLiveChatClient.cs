@@ -25,7 +25,7 @@ namespace LiveChat
 
         [Header("On-screen chat")]
         [SerializeField] private bool _showGui = true;
-        [SerializeField] private string _hint = "Local chat (debug): type a command like !help";
+        [SerializeField] private string _hint = "Local chat (debug): type a command like !help. Add cheer100 to simulate bits.";
         [SerializeField] private int _maxLogEntries = 8;
         [SerializeField] private bool _logToConsole = true;
 
@@ -143,10 +143,30 @@ namespace LiveChat
                 IsModerator = isModerator,
                 IsBroadcaster = isBroadcaster,
                 IsMe = false,
+                Bits = ParseCheerBits(trimmed),
                 Emotes = new List<LiveChatEmote>()
             };
 
             RaiseMessageReceived(message);
+        }
+
+        /// <summary>
+        /// Sums "cheerN" tokens (e.g. "!buy steel cheer100"), the way Twitch reports bits on a
+        /// message, so games can test bits handling without real cheers.
+        /// </summary>
+        public static int ParseCheerBits(string message)
+        {
+            if (string.IsNullOrEmpty(message))
+                return 0;
+
+            int total = 0;
+            foreach (string token in message.Split(' '))
+            {
+                if (token.Length > 5 && token.StartsWith("cheer", StringComparison.OrdinalIgnoreCase)
+                    && int.TryParse(token.Substring(5), out int bits) && bits > 0)
+                    total += bits;
+            }
+            return total;
         }
 
         private void AddLogLine(string line)

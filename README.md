@@ -118,6 +118,8 @@ the Console).
   broadcaster) to test permissions.
 - Call `SimulateIncoming("!vote up", "viewer42", isSubscriber: true)` from code to fake
   messages from many viewers, e.g. to test vote weighting.
+- Add `cheerN` to a message (`!buy steel cheer100`) to simulate bits: it sets
+  `LiveChatMessage.Bits` the way Twitch does.
 
 ## YouTube
 
