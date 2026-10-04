@@ -1,0 +1,16 @@
+{
+  "name": "com.cfomodz.livechat",
+  "version": "0.1.0",
+  "displayName": "Live Chat",
+  "description": "Live chat clients (Twitch, YouTube stub, local debug) and a chat command router for Unity.",
+  "unity": "2022.3",
+  "author": {
+    "name": "Cfomodz",
+    "url": "https://github.com/Cfomodz"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Cfomodz/unity-livechat.git"
+  },
+  "keywords": ["twitch", "youtube", "chat", "livestream"]
+}
