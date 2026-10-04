@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2
+
+- Fix: pressing Enter in `LocalDebugLiveChatClient`'s chat box now sends the message. `GUI.TextField`
+  used up the Enter key before the client checked for it.
+- Escape releases the chat box's keyboard focus, so a game's keyboard shortcuts work; click the box to type again.
+
 ## 0.1.1
 
 - `LocalDebugLiveChatClient` simulates bits: `cheerN` tokens in a message (`!buy steel cheer100`)
