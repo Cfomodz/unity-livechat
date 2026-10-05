@@ -100,6 +100,8 @@ namespace LiveChat.Twitch
 
                 if (status == HttpStatusCode.OK)
                     return TokenFrom(json);
+                if ((int)status >= 500)
+                    continue; // Twitch is having trouble: keep polling
 
                 string message = ((string)json?["message"] ?? string.Empty).ToLowerInvariant();
                 if (message.Contains("authorization_pending"))
@@ -131,7 +133,10 @@ namespace LiveChat.Twitch
                 return TokenFrom(json);
             if (status == HttpStatusCode.BadRequest || status == HttpStatusCode.Unauthorized)
                 return null;
-            throw new TwitchAuthException($"Refreshing the Twitch token failed: {(int)status} {(string)json?["message"]}");
+            string failure = $"Refreshing the Twitch token failed: {(int)status} {(string)json?["message"]}";
+            if ((int)status >= 500)
+                throw new HttpRequestException(failure); // Twitch is having trouble: worth retrying
+            throw new TwitchAuthException(failure);
         }
 
         /// <summary>Validates a token, as Twitch requires at startup and hourly. Null means it's no longer valid.</summary>
@@ -144,7 +149,12 @@ namespace LiveChat.Twitch
                 return null;
             string body = await response.Content.ReadAsStringAsync();
             if (!response.IsSuccessStatusCode)
-                throw new TwitchAuthException($"Validating the Twitch token failed: {(int)response.StatusCode} {body}");
+            {
+                string failure = $"Validating the Twitch token failed: {(int)response.StatusCode} {body}";
+                if ((int)response.StatusCode >= 500)
+                    throw new HttpRequestException(failure);
+                throw new TwitchAuthException(failure);
+            }
             JObject json = JObject.Parse(body);
             return new Validation
             {

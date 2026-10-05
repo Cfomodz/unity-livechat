@@ -173,7 +173,36 @@ namespace LiveChat.Twitch
             _sendQueue.Enqueue(message, replyTo, Time.realtimeSinceStartupAsDouble);
         }
 
+        /// <summary>Starts up, retrying with backoff while Twitch can't be reached (no network yet, an outage).</summary>
         private async Task StartAsync(string channel, CancellationToken ct)
+        {
+            for (int attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    await StartOnceAsync(channel, ct);
+                    return;
+                }
+                catch (Exception e) when (IsTransient(e, ct))
+                {
+                    int delay = Math.Min(60, 5 * attempt);
+                    Debug.LogWarning($"[LiveChat] Can't reach Twitch ({e.Message}), retrying in {delay} s");
+                    SetState(TwitchConnectionState.Reconnecting, $"Can't reach Twitch, retrying in {delay} s");
+                    await Task.Delay(TimeSpan.FromSeconds(delay), ct);
+                }
+            }
+        }
+
+        private static bool IsTransient(Exception e, CancellationToken ct)
+        {
+            if (ct.IsCancellationRequested)
+                return false;
+            if (e is System.Net.Http.HttpRequestException || e is TaskCanceledException)
+                return true; // TaskCanceledException without our cancellation is an HTTP timeout
+            return e is TwitchApiException api && (int)api.Status >= 500;
+        }
+
+        private async Task StartOnceAsync(string channel, CancellationToken ct)
         {
             TwitchTokenStore store = new TwitchTokenStore(_tokenFilePath);
             _helix = new TwitchHelix(_clientId);
