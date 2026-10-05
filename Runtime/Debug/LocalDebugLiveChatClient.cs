@@ -25,6 +25,8 @@ namespace LiveChat
 
         [Header("On-screen chat")]
         [SerializeField] private bool _showGui = true;
+        [Tooltip("Shows or hides the chat box (while it isn't focused). None disables the toggle.")]
+        [SerializeField] private KeyCode _toggleKey = KeyCode.BackQuote;
         [SerializeField] private string _hint = "Local chat (debug): type a command like !help. Add cheer100 to simulate bits.";
         [SerializeField] private int _maxLogEntries = 8;
         [SerializeField] private bool _logToConsole = true;
@@ -48,6 +50,12 @@ namespace LiveChat
         {
             get => _showGui;
             set => _showGui = value;
+        }
+
+        public KeyCode ToggleKey
+        {
+            get => _toggleKey;
+            set => _toggleKey = value;
         }
 
         public string Username
@@ -137,7 +145,6 @@ namespace LiveChat
                 DisplayName = name,
                 Channel = DefaultChannel,
                 RawMessage = trimmed,
-                RawIrcMessage = trimmed,
                 IsSubscriber = isSubscriber,
                 IsVip = isVip,
                 IsModerator = isModerator,
@@ -148,6 +155,108 @@ namespace LiveChat
             };
 
             RaiseMessageReceived(message);
+        }
+
+        public void SimulateSubscription(string username, int cumulativeMonths = 1,
+            LiveChatSubscriptionPlan plan = LiveChatSubscriptionPlan.Tier1)
+        {
+            AddLogLine($"* {username} subscribed{(cumulativeMonths > 1 ? $" for {cumulativeMonths} months" : "")}");
+            RaiseSubscribed(new LiveChatSubscriptionEvent
+            {
+                UserId = username.ToLowerInvariant(),
+                Username = username.ToLowerInvariant(),
+                DisplayName = username,
+                Plan = plan,
+                CumulativeMonths = Mathf.Max(1, cumulativeMonths),
+                DurationMonths = 1,
+                IsResub = cumulativeMonths > 1
+            });
+        }
+
+        /// <summary>A gifted sub. Pass a null <paramref name="gifter"/> for an anonymous gift.</summary>
+        public void SimulateGiftSubscription(string gifter, string recipient,
+            LiveChatSubscriptionPlan plan = LiveChatSubscriptionPlan.Tier1, string communityGiftId = null)
+        {
+            if (communityGiftId == null)
+                AddLogLine($"* {gifter ?? "An anonymous gifter"} gifted a sub to {recipient}");
+            RaiseSubscriptionGifted(new LiveChatGiftSubscriptionEvent
+            {
+                GifterUserId = gifter?.ToLowerInvariant(),
+                GifterUsername = gifter?.ToLowerInvariant(),
+                GifterDisplayName = gifter,
+                GifterIsAnonymous = gifter == null,
+                RecipientUserId = recipient.ToLowerInvariant(),
+                RecipientUsername = recipient.ToLowerInvariant(),
+                RecipientDisplayName = recipient,
+                Plan = plan,
+                DurationMonths = 1,
+                CommunityGiftId = communityGiftId
+            });
+        }
+
+        /// <summary>A community gift, followed by one gifted sub per recipient, as Twitch sends them.</summary>
+        public void SimulateCommunityGift(string gifter, IReadOnlyList<string> recipients,
+            LiveChatSubscriptionPlan plan = LiveChatSubscriptionPlan.Tier1)
+        {
+            string id = Guid.NewGuid().ToString("N");
+            AddLogLine($"* {gifter ?? "An anonymous gifter"} is gifting {recipients.Count} subs");
+            RaiseCommunityGiftStarted(new LiveChatCommunityGiftEvent
+            {
+                Id = id,
+                GifterUserId = gifter?.ToLowerInvariant(),
+                GifterUsername = gifter?.ToLowerInvariant(),
+                GifterDisplayName = gifter,
+                GifterIsAnonymous = gifter == null,
+                Count = recipients.Count,
+                Plan = plan
+            });
+            foreach (string recipient in recipients)
+                SimulateGiftSubscription(gifter, recipient, plan, id);
+        }
+
+        public void SimulateRaid(string fromChannel, int viewers)
+        {
+            AddLogLine($"* {fromChannel} is raiding with {viewers} viewers");
+            RaiseRaided(new LiveChatRaidEvent
+            {
+                FromUserId = fromChannel.ToLowerInvariant(),
+                FromUsername = fromChannel.ToLowerInvariant(),
+                FromDisplayName = fromChannel,
+                Viewers = viewers
+            });
+        }
+
+        public void SimulateFollow(string username)
+        {
+            AddLogLine($"* {username} followed");
+            RaiseFollowed(new LiveChatFollowEvent
+            {
+                UserId = username.ToLowerInvariant(),
+                Username = username.ToLowerInvariant(),
+                DisplayName = username
+            });
+        }
+
+        public void SimulateRedemption(string rewardTitle, string username, string userInput = null, int cost = 0)
+        {
+            AddLogLine($"* {username} redeemed {rewardTitle}{(string.IsNullOrEmpty(userInput) ? "" : $": {userInput}")}");
+            RaiseChannelPointsRedeemed(new LiveChatChannelPointsRedemption
+            {
+                RedemptionId = Guid.NewGuid().ToString("N"),
+                RewardId = rewardTitle,
+                RewardTitle = rewardTitle,
+                Cost = cost,
+                UserId = username.ToLowerInvariant(),
+                Username = username.ToLowerInvariant(),
+                DisplayName = username,
+                UserInput = userInput
+            });
+        }
+
+        public override void CompleteRedemption(LiveChatChannelPointsRedemption redemption, bool fulfilled)
+        {
+            if (redemption != null && !fulfilled)
+                AddLogLine($"* Refunded {redemption.DisplayName}'s {redemption.RewardTitle}");
         }
 
         /// <summary>
@@ -182,6 +291,16 @@ namespace LiveChat
 
         private void OnGUI()
         {
+            Event current = Event.current;
+            if (_toggleKey != KeyCode.None && current != null && current.type == EventType.KeyDown
+                && current.keyCode == _toggleKey && GUI.GetNameOfFocusedControl() != InputControlName)
+            {
+                _showGui = !_showGui;
+                if (!_showGui && GUIUtility.keyboardControl != 0)
+                    GUIUtility.keyboardControl = 0;
+                current.Use();
+            }
+
             if (!_showGui)
                 return;
 

@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.2.0
+
+Twitch now goes through EventSub and the Helix API instead of IRC and PubSub. Twitch shut
+PubSub down on 2025-04-14 and recommends EventSub and Helix over IRC for chat bots.
+
+**Breaking changes**
+
+- `TwitchLiveChatClient` is rewritten. Set `ClientId` (a Twitch app registered as a **Public**
+  client), optionally `BotLogin`, `ChannelPoints` and `TokenFilePath`, then call
+  `Connect(new LiveChatConnectConfig { ChannelName = "channel" })`. There's no token to paste:
+  the bot (and, for channel points, the broadcaster) log in with Twitch's device code flow, and
+  tokens are saved, refreshed and validated hourly.
+- `TwitchPubSubClient` and the bundled TwitchLib DLLs are removed.
+- `LiveChatConnectConfig` only has `ChannelName`. `ChannelId` and `BotAccessToken` are gone.
+- `LiveChatMessage.RawIrcMessage` and `IsFirstMessage` are gone (EventSub has no equivalent).
+- `LiveChatBitsEvent` and `LiveChatRewardRedemption` are gone: bits arrive on
+  `LiveChatMessage.Bits`, redemptions as `LiveChatChannelPointsRedemption`.
+
+**New**
+
+- Stream events on every client: `Subscribed`, `SubscriptionGifted`, `CommunityGiftStarted`,
+  `Raided`, `Followed` and `ChannelPointsRedeemed`, plus `CompleteRedemption` to fulfil or refund.
+- `TwitchLiveChatClient` uses a separate bot account. It reads chat, bits, subs, gifts and raids
+  with only the bot's login; follows need the bot to be a moderator; channel points need the
+  broadcaster's login. `EnsureRewardsAsync` creates the app's own channel point rewards, since
+  only the app that created a reward can fulfil or refund its redemptions.
+- `State`, `StatusText` and `PendingAuthorization` for an on-screen status and login prompt.
+- Outgoing chat goes through `ChatSendQueue`: it stays under Twitch's rate limits (higher once
+  the bot is seen with a moderator or VIP badge), drops repeats within 30 s and trims to 500 characters.
+- EventSub sessions handle keepalive timeouts, `session_reconnect`, duplicate and stale messages,
+  revocations, and reconnect with backoff.
+- `LocalDebugLiveChatClient` can simulate subs, gifts, community gifts, raids, follows and
+  redemptions, and a key (backquote by default) shows or hides its chat box.
+- EditMode tests for the EventSub translator, the send queue and the token store.
+
 ## 0.1.2
 
 - Fix: pressing Enter in `LocalDebugLiveChatClient`'s chat box now sends the message. `GUI.TextField`
