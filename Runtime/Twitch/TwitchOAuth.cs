@@ -177,9 +177,15 @@ namespace LiveChat.Twitch
         private static async Task<JObject> PostFormAsync(string url, Dictionary<string, string> form, CancellationToken ct)
         {
             (HttpStatusCode status, JObject json) = await PostFormRawAsync(url, form, ct);
-            if (status != HttpStatusCode.OK)
-                throw new TwitchAuthException($"Twitch returned {(int)status}: {(string)json?["message"]}");
-            return json;
+            if (status == HttpStatusCode.OK)
+                return json;
+            string message = (string)json?["message"];
+            if ((int)status >= 500)
+                throw new HttpRequestException($"Twitch returned {(int)status}: {message}");
+            if (message != null && message.IndexOf("invalid client", StringComparison.OrdinalIgnoreCase) >= 0)
+                throw new TwitchAuthException("Twitch doesn't recognise the client ID. Copy it from your app at "
+                    + "dev.twitch.tv/console, and make sure the app's Client Type is Public.");
+            throw new TwitchAuthException($"Twitch returned {(int)status}: {message}");
         }
 
         private static async Task<(HttpStatusCode, JObject)> PostFormRawAsync(string url, Dictionary<string, string> form, CancellationToken ct)
