@@ -100,7 +100,7 @@ namespace LiveChat.Twitch
             JToken result = json["data"]?.FirstOrDefault();
             if (result == null || (bool?)result["is_sent"] == true)
                 return null;
-            return (string)result["drop_reason"]?["message"] ?? (string)result["drop_reason"]?["code"] ?? "dropped";
+            return (string)result["drop_reason"].Field("message") ?? (string)result["drop_reason"].Field("code") ?? "dropped";
         }
 
         /// <summary>The channel's rewards; with <paramref name="onlyManageable"/>, only the ones this app created.</summary>

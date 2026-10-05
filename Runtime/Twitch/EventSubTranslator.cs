@@ -44,9 +44,9 @@ namespace LiveChat.Twitch
                     return new LiveChatChannelPointsRedemption
                     {
                         RedemptionId = (string)ev["id"],
-                        RewardId = (string)ev["reward"]?["id"],
-                        RewardTitle = (string)ev["reward"]?["title"],
-                        Cost = (int?)ev["reward"]?["cost"] ?? 0,
+                        RewardId = (string)ev["reward"].Field("id"),
+                        RewardTitle = (string)ev["reward"].Field("title"),
+                        Cost = (int?)ev["reward"].Field("cost") ?? 0,
                         UserId = (string)ev["user_id"],
                         Username = (string)ev["user_login"],
                         DisplayName = (string)ev["user_name"],
@@ -68,12 +68,12 @@ namespace LiveChat.Twitch
 
             List<LiveChatEmote> emotes = new List<LiveChatEmote>();
             int index = 0;
-            foreach (JToken fragment in ev["message"]?["fragments"] ?? new JArray())
+            foreach (JToken fragment in ev["message"].Field("fragments") ?? new JArray())
             {
                 string text = (string)fragment["text"] ?? string.Empty;
                 if ((string)fragment["type"] == "emote")
                 {
-                    string id = (string)fragment["emote"]?["id"];
+                    string id = (string)fragment["emote"].Field("id");
                     emotes.Add(new LiveChatEmote
                     {
                         Id = id,
@@ -93,14 +93,14 @@ namespace LiveChat.Twitch
                 Username = (string)ev["chatter_user_login"],
                 DisplayName = (string)ev["chatter_user_name"],
                 Channel = channel,
-                RawMessage = (string)ev["message"]?["text"] ?? string.Empty,
+                RawMessage = (string)ev["message"].Field("text") ?? string.Empty,
                 UsernameColor = color,
                 IsSubscriber = badges.Contains("subscriber") || badges.Contains("founder"),
                 IsModerator = badges.Contains("moderator") || badges.Contains("lead_moderator"),
                 IsVip = badges.Contains("vip"),
                 IsBroadcaster = badges.Contains("broadcaster") || userId == (string)ev["broadcaster_user_id"],
                 IsMe = !string.IsNullOrEmpty(selfUserId) && userId == selfUserId,
-                Bits = (int?)ev["cheer"]?["bits"] ?? 0,
+                Bits = (int?)ev["cheer"].Field("bits") ?? 0,
                 Emotes = emotes
             };
         }
@@ -123,9 +123,9 @@ namespace LiveChat.Twitch
                         UserId = chatterId,
                         Username = chatterLogin,
                         DisplayName = chatterName,
-                        Plan = Plan((string)sub?["sub_tier"], (bool?)sub?["is_prime"] ?? false),
+                        Plan = Plan((string)sub.Field("sub_tier"), (bool?)sub.Field("is_prime") ?? false),
                         CumulativeMonths = 1,
-                        DurationMonths = (int?)sub?["duration_months"] ?? 1
+                        DurationMonths = (int?)sub.Field("duration_months") ?? 1
                     };
                 }
                 case "resub":
@@ -136,11 +136,11 @@ namespace LiveChat.Twitch
                         UserId = chatterId,
                         Username = chatterLogin,
                         DisplayName = chatterName,
-                        Plan = Plan((string)resub?["sub_tier"], (bool?)resub?["is_prime"] ?? false),
-                        CumulativeMonths = (int?)resub?["cumulative_months"] ?? 1,
-                        DurationMonths = (int?)resub?["duration_months"] ?? 1,
+                        Plan = Plan((string)resub.Field("sub_tier"), (bool?)resub.Field("is_prime") ?? false),
+                        CumulativeMonths = (int?)resub.Field("cumulative_months") ?? 1,
+                        DurationMonths = (int?)resub.Field("duration_months") ?? 1,
                         IsResub = true,
-                        Message = (string)ev["message"]?["text"]
+                        Message = (string)ev["message"].Field("text")
                     };
                 }
                 case "sub_gift":
@@ -152,12 +152,12 @@ namespace LiveChat.Twitch
                         GifterUsername = anonymous ? null : chatterLogin,
                         GifterDisplayName = anonymous ? null : chatterName,
                         GifterIsAnonymous = anonymous,
-                        RecipientUserId = (string)gift?["recipient_user_id"],
-                        RecipientUsername = (string)gift?["recipient_user_login"],
-                        RecipientDisplayName = (string)gift?["recipient_user_name"],
-                        Plan = Plan((string)gift?["sub_tier"], false),
-                        DurationMonths = (int?)gift?["duration_months"] ?? 1,
-                        CommunityGiftId = (string)gift?["community_gift_id"]
+                        RecipientUserId = (string)gift.Field("recipient_user_id"),
+                        RecipientUsername = (string)gift.Field("recipient_user_login"),
+                        RecipientDisplayName = (string)gift.Field("recipient_user_name"),
+                        Plan = Plan((string)gift.Field("sub_tier"), false),
+                        DurationMonths = (int?)gift.Field("duration_months") ?? 1,
+                        CommunityGiftId = (string)gift.Field("community_gift_id")
                     };
                 }
                 case "community_sub_gift":
@@ -165,13 +165,13 @@ namespace LiveChat.Twitch
                     JToken gift = ev["community_sub_gift"];
                     return new LiveChatCommunityGiftEvent
                     {
-                        Id = (string)gift?["id"],
+                        Id = (string)gift.Field("id"),
                         GifterUserId = anonymous ? null : chatterId,
                         GifterUsername = anonymous ? null : chatterLogin,
                         GifterDisplayName = anonymous ? null : chatterName,
                         GifterIsAnonymous = anonymous,
-                        Count = (int?)gift?["total"] ?? 0,
-                        Plan = Plan((string)gift?["sub_tier"], false)
+                        Count = (int?)gift.Field("total") ?? 0,
+                        Plan = Plan((string)gift.Field("sub_tier"), false)
                     };
                 }
                 case "raid":
@@ -179,11 +179,11 @@ namespace LiveChat.Twitch
                     JToken raid = ev["raid"];
                     return new LiveChatRaidEvent
                     {
-                        FromUserId = (string)raid?["user_id"],
-                        FromUsername = (string)raid?["user_login"],
-                        FromDisplayName = (string)raid?["user_name"],
-                        Viewers = (int?)raid?["viewer_count"] ?? 0,
-                        ProfileImageUrl = (string)raid?["profile_image_url"]
+                        FromUserId = (string)raid.Field("user_id"),
+                        FromUsername = (string)raid.Field("user_login"),
+                        FromDisplayName = (string)raid.Field("user_name"),
+                        Viewers = (int?)raid.Field("viewer_count") ?? 0,
+                        ProfileImageUrl = (string)raid.Field("profile_image_url")
                     };
                 }
                 default:

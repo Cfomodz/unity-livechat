@@ -138,16 +138,16 @@ namespace LiveChat.Twitch
 
             JObject metadata = message["metadata"] as JObject;
             JObject payload = message["payload"] as JObject;
-            string type = (string)metadata?["message_type"];
+            string type = (string)metadata.Field("message_type");
             if (from == _active)
                 _lastMessageAt = now;
 
             switch (type)
             {
                 case "session_welcome":
-                    JObject session = payload?["session"] as JObject;
-                    _keepaliveSeconds = (double?)session?["keepalive_timeout_seconds"] ?? 30;
-                    SessionId = (string)session?["id"];
+                    JObject session = payload.Field("session") as JObject;
+                    _keepaliveSeconds = (double?)session.Field("keepalive_timeout_seconds") ?? 30;
+                    SessionId = (string)session.Field("id");
                     from.Welcomed = true;
                     _failures = 0;
                     if (from == _migrating || from.IsMigration)
@@ -169,7 +169,7 @@ namespace LiveChat.Twitch
                     break;
 
                 case "session_reconnect":
-                    string reconnectUrl = (string)payload?["session"]?["reconnect_url"];
+                    string reconnectUrl = (string)payload.Field("session").Field("reconnect_url");
                     if (from == _active && !string.IsNullOrEmpty(reconnectUrl))
                     {
                         Close(_migrating);
@@ -185,14 +185,14 @@ namespace LiveChat.Twitch
                     {
                         MessageId = (string)metadata["message_id"],
                         SubscriptionType = (string)metadata["subscription_type"],
-                        Event = payload?["event"] as JObject
+                        Event = payload.Field("event") as JObject
                     });
                     break;
 
                 case "revocation":
                     if (!IsFresh(metadata))
                         break;
-                    Revoked?.Invoke((string)metadata["subscription_type"], (string)payload?["subscription"]?["status"]);
+                    Revoked?.Invoke((string)metadata["subscription_type"], (string)payload.Field("subscription").Field("status"));
                     break;
             }
         }
@@ -200,7 +200,7 @@ namespace LiveChat.Twitch
         /// <summary>Drops replays: messages seen before, or older than ten minutes.</summary>
         private bool IsFresh(JObject metadata)
         {
-            string id = (string)metadata?["message_id"];
+            string id = (string)metadata.Field("message_id");
             if (string.IsNullOrEmpty(id) || !_seenIds.Add(id))
                 return false;
             _seenOrder.Enqueue(id);
