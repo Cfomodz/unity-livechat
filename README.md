@@ -2,16 +2,20 @@
 
 Live chat clients and a chat command router for Unity (`com.cfomodz.livechat`).
 
-- **Clients:** Twitch chat (TwitchLib), Twitch PubSub (channel points, bits), a YouTube
-  stub, and a local debug client with an on-screen chat box.
+- **Twitch:** chat, bits, subs, gifts, raids, follows and channel points through
+  [EventSub](https://dev.twitch.tv/docs/eventsub/) over WebSocket and the Helix API, with a
+  separate bot account. No server and no client secret: accounts log in with Twitch's device
+  code flow.
+- **Local debug client:** an on-screen chat box, plus simulated subs, raids and redemptions, for
+  testing without going live.
 - **Command router:** parses `!command args` messages and dispatches them to
   `ChatCommandHandler` components, with per-command permissions
   (anyone, subscriber, VIP, moderator, broadcaster).
+- A YouTube client stub.
 
 Extracted from [Interactive-Livestream-Chaos-League](https://github.com/Cfomodz/Interactive-Livestream-Chaos-League),
-with history. Used by Chaos League and [chat-minigames](https://github.com/Cfomodz/chat-minigames).
-
-Requires Unity **2022.3** or newer.
+with history. Requires Unity **2022.3** or newer, on platforms with `System.Net.WebSockets`
+(desktop; not WebGL).
 
 ## Install
 
@@ -20,138 +24,152 @@ Add the package to your project's `Packages/manifest.json`:
 ```json
 {
   "dependencies": {
-    "com.cfomodz.livechat": "https://github.com/Cfomodz/unity-livechat.git#v0.1.1"
+    "com.cfomodz.livechat": "https://github.com/Cfomodz/unity-livechat.git#v0.2.0"
   }
 }
 ```
 
-Or use **Window → Package Manager → + → Add package from git URL…** with the same URL.
+It depends on Unity's `com.unity.nuget.newtonsoft-json`, which Package Manager installs for you.
+Upgrading from 0.1.x: see the [changelog](CHANGELOG.md).
 
-### TwitchLib is included
+## Commands
 
-The package ships the TwitchLib DLLs (Client, PubSub, Communication, Unity, Api, Api.Helix and
-their dependencies) under `Runtime/Plugins/TwitchLib/`. If your project already has copies of
-any of these DLLs in `Assets/`, delete them. Two copies of the same DLL cause
-"Multiple precompiled assemblies with the same name" errors.
+```csharp
+using LiveChat.Commands;
 
-TwitchLib needs Newtonsoft.Json, so the package depends on Unity's
-`com.unity.nuget.newtonsoft-json`; Package Manager installs it for you.
+public class JumpCommand : ChatCommandHandler
+{
+    private void Awake()
+    {
+        SetDefaults("jump", "Make the player jump.", "!jump [height]",
+            ChatCommandPermission.Anyone, "j");
+    }
 
-The DLLs are auto-referenced, so your project's own scripts can keep using
-`TwitchLib.Api` etc. directly.
+    public override void Execute(ChatCommandContext context)
+    {
+        float height = context.Args.Length > 0 && float.TryParse(context.Args[0], out var h) ? h : 1f;
+        // ... make something jump ...
+        context.Reply($"{context.DisplayName} jumped {height}!");
+    }
+}
+```
 
-## Quick start
+Put a chat client, your handlers and a `ChatCommandRouter` on one GameObject. The router finds
+the client on the same GameObject and every `ChatCommandHandler` under it (or under
+`Handler Root`) on `Awake`; call `router.RefreshHandlers()` if you add handlers later.
+`ChatCommandContext` gives you the parsed `Command`, `Args` / `ArgsRaw`, the sender
+(`Username`, `DisplayName`, `IsSubscriber`, `IsVip`, `IsModerator`, `IsBroadcaster`), the
+original `LiveChatMessage` (including `Bits`), and `Reply` / `Say` to answer in chat.
 
-1. Write a command:
+If you don't want commands, subscribe to `client.MessageReceived` yourself.
 
-   ```csharp
-   using LiveChat.Commands;
+## Stream events
 
-   public class JumpCommand : ChatCommandHandler
-   {
-       private void Awake()
-       {
-           SetDefaults("jump", "Make the player jump.", "!jump [height]",
-               ChatCommandPermission.Anyone, "j");
-       }
+Every client raises the same events, so a game handles them once and can test them with the
+debug client:
 
-       public override void Execute(ChatCommandContext context)
-       {
-           float height = context.Args.Length > 0 && float.TryParse(context.Args[0], out var h) ? h : 1f;
-           // ... make something jump ...
-           context.Reply($"{context.DisplayName} jumped {height}!");
-       }
-   }
-   ```
+| Event | Raised for |
+|---|---|
+| `MessageReceived` | Chat messages. Cheers have `LiveChatMessage.Bits` set |
+| `Subscribed` | New subs and shared resubs |
+| `CommunityGiftStarted` | "X is gifting N subs", followed by N `SubscriptionGifted` |
+| `SubscriptionGifted` | One gifted sub (with `CommunityGiftId` set if it's part of a community gift) |
+| `Raided` | Incoming raids, with the viewer count |
+| `Followed` | New followers |
+| `ChannelPointsRedeemed` | Channel point redemptions. Call `CompleteRedemption(redemption, fulfilled)` to fulfil it, or cancel it to refund the points |
 
-   `ChatCommandContext` gives you the parsed `Command`, `Args` / `ArgsRaw`, the sender
-   (`Username`, `DisplayName`, `IsSubscriber`, `IsVip`, `IsModerator`, `IsBroadcaster`), the
-   original `LiveChatMessage`, and `Reply` / `Say` to answer in chat.
+## Twitch
 
-2. Put a chat client, your handlers and a router on a GameObject:
+### One-time setup
 
-   ```csharp
-   using LiveChat;
-   using LiveChat.Commands;
-   using LiveChat.Twitch;
-   using UnityEngine;
+1. **Register an app** at [dev.twitch.tv/console](https://dev.twitch.tv/console/apps): any name,
+   OAuth redirect URL `http://localhost`, category "Chat Bot", and **Client Type: Public**. Copy
+   its Client ID. It isn't a secret, but a public client can only use the device code flow,
+   which is what this package uses.
+2. **Create a bot account** on Twitch (a normal account, e.g. `mychannel_bot`).
+3. **Make it a moderator** of your channel: type `/mod mychannel_bot` in your chat. The bot needs
+   that to see follows, and moderators may send 100 messages per 30 s instead of 20.
 
-   public class ChatSetup : MonoBehaviour
-   {
-       [SerializeField] private string _channel = "mychannel";
-       [SerializeField] private string _botAccessToken = ""; // oauth token, don't commit it
+### Connecting
 
-       private void Start()
-       {
-           var client = gameObject.AddComponent<TwitchLiveChatClient>();
-           gameObject.AddComponent<JumpCommand>();
-           var router = gameObject.AddComponent<ChatCommandRouter>(); // finds the client on the same GameObject
-           router.RefreshHandlers();
+```csharp
+using LiveChat;
+using LiveChat.Twitch;
 
-           client.Connect(new LiveChatConnectConfig
-           {
-               ChannelName = _channel,
-               BotAccessToken = _botAccessToken
-           });
-       }
-   }
-   ```
+var twitch = gameObject.AddComponent<TwitchLiveChatClient>();
+twitch.ClientId = "your-public-client-id";
+twitch.BotLogin = "mychannel_bot";      // optional: refuse any other account at the bot login
+twitch.ChannelPoints = true;            // optional: the broadcaster logs in too
+twitch.TokenFilePath = "...";           // optional: defaults to persistentDataPath/livechat-tokens.json
+twitch.AuthorizationRequired += auth => Debug.Log(auth.Instructions); // or show it on screen
+twitch.Connect(new LiveChatConnectConfig { ChannelName = "mychannel" });
+```
 
-   The router finds every `ChatCommandHandler` under its GameObject (or under `Handler Root`)
-   on `Awake`. If you add handlers after that, call `router.RefreshHandlers()` or
-   `router.RegisterHandler(handler)`.
+The first time, `Connect` asks for a login: `PendingAuthorization` (and the
+`AuthorizationRequired` event) say which account to log in as and the code to enter at
+twitch.tv/activate (`VerificationUri` opens it with the code filled in). Log in **as the bot**
+for the bot login. With `ChannelPoints` on, a second prompt asks for the broadcaster. After
+that, tokens are saved in `TokenFilePath` and refreshed automatically; a refresh token unused for
+30 days expires and you log in again. **Keep the token file out of version control.**
 
-   You can also set all of this up in the Inspector. The built-in `ChatCommandHelp`,
-   `ChatCommandPing` and `ChatCommandEcho` handlers fill in their command name when added in
-   the editor (`Reset`). From code, subclass them and call `SetDefaults` in `Awake`, as `JumpCommand` does.
+`State` and `StatusText` describe the connection for an on-screen display, and `StatusChanged`
+fires when they change. Errors are raised on `Error`.
 
-3. If you don't want commands, subscribe to `client.MessageReceived` and handle every
-   `LiveChatMessage` yourself.
+### What each login allows
+
+| Feature | Needs |
+|---|---|
+| Chat, bits, subs, gifts, raids | The bot's login (`user:read:chat`, `user:write:chat`) |
+| Follows | The bot to be a moderator (`moderator:read:followers`) |
+| Channel points | The broadcaster's login (`channel:manage:redemptions`) and an affiliate or partner channel |
+
+Only the app that created a reward can fulfil or refund its redemptions, so let the game create
+its rewards with `await twitch.EnsureRewardsAsync(specs)` once `ChannelPointsConnected` fires. It
+creates any that are missing (matched by title) and returns their IDs. Redemptions of rewards
+made elsewhere still arrive, but `CompleteRedemption` can't change them.
+
+### Rate limits
+
+Replies go through a queue that stays under Twitch's limits (20 messages per 30 s and one per
+second for a normal account, 100 per 30 s for a moderator or VIP), drops a message repeated
+within 30 s, and trims messages to 500 characters. The client notices the bot's moderator badge
+on its own messages and raises the limit.
 
 ## Testing without going live
 
 Use `LocalDebugLiveChatClient` in place of the Twitch client. It draws a chat box in the
-corner of the Game view. Type `!jump 3` and press Enter. Bot replies show in the box (and in
-the Console).
+bottom-left corner of the Game view: type `!jump 3` and press Enter. Bot replies show in the box
+(and in the Console). Backquote shows or hides the box; Escape releases its keyboard focus.
 
 - Toggle the simulated viewer's roles in the Inspector (subscriber, VIP, moderator,
   broadcaster) to test permissions.
-- Call `SimulateIncoming("!vote up", "viewer42", isSubscriber: true)` from code to fake
-  messages from many viewers, e.g. to test vote weighting.
-- Add `cheerN` to a message (`!buy steel cheer100`) to simulate bits: it sets
-  `LiveChatMessage.Bits` the way Twitch does.
+- `SimulateIncoming("!vote up", "viewer42", isSubscriber: true)` fakes messages from many viewers.
+- Add `cheerN` to a message (`!buy steel cheer100`) to simulate bits.
+- `SimulateSubscription`, `SimulateGiftSubscription`, `SimulateCommunityGift`, `SimulateRaid`,
+  `SimulateFollow` and `SimulateRedemption` raise the stream events.
 
 ## YouTube
 
-`YouTubeLiveChatClient` is a **stub**: `Connect` raises an error saying it isn't
-implemented yet. It exists so the client API has a second platform to stay honest against.
-Wiring it to the YouTube Data API (`liveChatMessages.list` polling) is future work.
-
-## Twitch PubSub
-
-`TwitchPubSubClient` listens for channel point redemptions and bits. It raises its own
-events rather than chat messages; see the source for the event list.
+`YouTubeLiveChatClient` is a **stub**: `Connect` raises an error saying it isn't implemented yet.
 
 ## Namespaces
 
 | Namespace | Contents |
 |---|---|
-| `LiveChat` | `LiveChatClientBase`, `LiveChatMessage`, `LiveChatEmote`, `LiveChatConnectConfig`, `LocalDebugLiveChatClient` |
+| `LiveChat` | `LiveChatClientBase`, `LiveChatMessage`, the event types, `LiveChatConnectConfig`, `LocalDebugLiveChatClient` |
 | `LiveChat.Commands` | Router, handlers, parser, permissions |
-| `LiveChat.Twitch` | Twitch chat and PubSub clients |
+| `LiveChat.Twitch` | `TwitchLiveChatClient`, and the pieces it's built from: `TwitchAccount`, `TwitchOAuth`, `TwitchHelix`, `EventSubSocket`, `EventSubTranslator`, `ChatSendQueue`, `TwitchTokenStore` |
 | `LiveChat.YouTube` | YouTube client (stub) |
 
 ## Tests
 
-EditMode tests for the command parser live in `Tests/Editor` (assembly `LiveChat.Tests`).
-To run them in a project that consumes this package, list the package under `testables` in
-that project's `Packages/manifest.json`:
+EditMode tests (command parser, EventSub translator, send queue, token store) live in
+`Tests/Editor` (assembly `LiveChat.Tests`). To run them in a project that consumes this
+package, list the package under `testables` in that project's `Packages/manifest.json`:
 
 ```json
 "testables": ["com.cfomodz.livechat"]
 ```
-
-Then open **Window → General → Test Runner → EditMode**.
 
 ## Releasing
 

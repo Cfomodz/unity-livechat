@@ -13,14 +13,14 @@ namespace LiveChat
         public string DisplayName;
         public string Channel;
         public string RawMessage;
-        public string RawIrcMessage;
         public Color UsernameColor;
         public bool IsSubscriber;
-        public bool IsFirstMessage;
+        /// <summary>Bits cheered with this message (0 if it isn't a cheer).</summary>
         public int Bits;
         public bool IsModerator;
         public bool IsBroadcaster;
         public bool IsVip;
+        /// <summary>The message was sent by the account the client is logged in as.</summary>
         public bool IsMe;
         public List<LiveChatEmote> Emotes;
     }

@@ -11,6 +11,13 @@ namespace LiveChat
         public event Action<Exception> Error;
         public event Action<LiveChatMessage> MessageReceived;
 
+        public event Action<LiveChatSubscriptionEvent> Subscribed;
+        public event Action<LiveChatGiftSubscriptionEvent> SubscriptionGifted;
+        public event Action<LiveChatCommunityGiftEvent> CommunityGiftStarted;
+        public event Action<LiveChatRaidEvent> Raided;
+        public event Action<LiveChatFollowEvent> Followed;
+        public event Action<LiveChatChannelPointsRedemption> ChannelPointsRedeemed;
+
         public string DefaultChannel { get; protected set; }
         public bool IsConnected { get; protected set; }
 
@@ -18,6 +25,14 @@ namespace LiveChat
         public abstract void Disconnect();
         public abstract void SendMessage(string channel, string message);
         public abstract void SendReply(string channel, string replyToMessageId, string message);
+
+        /// <summary>
+        /// Finishes a channel point redemption: <paramref name="fulfilled"/> marks it done, false
+        /// cancels it and refunds the viewer's points. Clients without channel points ignore it.
+        /// </summary>
+        public virtual void CompleteRedemption(LiveChatChannelPointsRedemption redemption, bool fulfilled)
+        {
+        }
 
         public void SendMessage(string message)
         {
@@ -40,5 +55,11 @@ namespace LiveChat
         protected void RaiseDisconnected() => Disconnected?.Invoke();
         protected void RaiseError(Exception exception) => Error?.Invoke(exception);
         protected void RaiseMessageReceived(LiveChatMessage message) => MessageReceived?.Invoke(message);
+        protected void RaiseSubscribed(LiveChatSubscriptionEvent e) => Subscribed?.Invoke(e);
+        protected void RaiseSubscriptionGifted(LiveChatGiftSubscriptionEvent e) => SubscriptionGifted?.Invoke(e);
+        protected void RaiseCommunityGiftStarted(LiveChatCommunityGiftEvent e) => CommunityGiftStarted?.Invoke(e);
+        protected void RaiseRaided(LiveChatRaidEvent e) => Raided?.Invoke(e);
+        protected void RaiseFollowed(LiveChatFollowEvent e) => Followed?.Invoke(e);
+        protected void RaiseChannelPointsRedeemed(LiveChatChannelPointsRedemption e) => ChannelPointsRedeemed?.Invoke(e);
     }
 }
