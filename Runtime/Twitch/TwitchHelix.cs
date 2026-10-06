@@ -130,20 +130,24 @@ namespace LiveChat.Twitch
 
         public async Task<TwitchCustomReward> CreateCustomRewardAsync(TwitchAccount broadcaster, TwitchRewardSpec spec, CancellationToken ct)
         {
+            JObject json = await SendAsync(broadcaster, HttpMethod.Post,
+                $"channel_points/custom_rewards?broadcaster_id={broadcaster.UserId}", RewardBody(spec), ct);
+            return RewardFrom(json["data"]?.First());
+        }
+
+        private static Dictionary<string, object> RewardBody(TwitchRewardSpec spec)
+        {
             Dictionary<string, object> body = new Dictionary<string, object>
             {
                 ["title"] = spec.Title,
                 ["cost"] = spec.Cost,
-                ["is_user_input_required"] = spec.IsUserInputRequired
+                ["is_user_input_required"] = spec.IsUserInputRequired,
+                // Empty clears a prompt a reward had before
+                ["prompt"] = spec.Prompt ?? string.Empty
             };
-            if (!string.IsNullOrEmpty(spec.Prompt))
-                body["prompt"] = spec.Prompt;
             if (!string.IsNullOrEmpty(spec.BackgroundColor))
                 body["background_color"] = spec.BackgroundColor;
-
-            JObject json = await SendAsync(broadcaster, HttpMethod.Post,
-                $"channel_points/custom_rewards?broadcaster_id={broadcaster.UserId}", body, ct);
-            return RewardFrom(json["data"]?.First());
+            return body;
         }
 
         /// <summary>Marks a redemption FULFILLED or CANCELED (which refunds the points). Only works for this app's rewards.</summary>
@@ -160,6 +164,22 @@ namespace LiveChat.Twitch
             return SendAsync(broadcaster, new HttpMethod("PATCH"),
                 $"channel_points/custom_rewards?broadcaster_id={broadcaster.UserId}&id={rewardId}",
                 new { is_enabled = isEnabled }, ct);
+        }
+
+        /// <summary>Changes one of this app's rewards to match <paramref name="spec"/>, and shows or hides it.</summary>
+        public Task UpdateCustomRewardAsync(TwitchAccount broadcaster, string rewardId, TwitchRewardSpec spec, bool isEnabled, CancellationToken ct)
+        {
+            Dictionary<string, object> body = RewardBody(spec);
+            body["is_enabled"] = isEnabled;
+            return SendAsync(broadcaster, new HttpMethod("PATCH"),
+                $"channel_points/custom_rewards?broadcaster_id={broadcaster.UserId}&id={rewardId}", body, ct);
+        }
+
+        /// <summary>Deletes one of this app's rewards.</summary>
+        public Task DeleteCustomRewardAsync(TwitchAccount broadcaster, string rewardId, CancellationToken ct)
+        {
+            return SendAsync(broadcaster, HttpMethod.Delete,
+                $"channel_points/custom_rewards?broadcaster_id={broadcaster.UserId}&id={rewardId}", null, ct);
         }
 
         /// <summary>The IDs of up to 50 of a reward's redemptions still waiting to be fulfilled or refunded.</summary>

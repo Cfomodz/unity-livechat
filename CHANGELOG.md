@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.3
+
+- `EnsureRewardsAsync` now keeps the app's rewards in line with the list it's given: rewards it
+  already created are updated to the spec (cost, prompt, user input) as they're reopened, so
+  changing a price in code changes it on Twitch. With `removeUnlisted: true`, the app's rewards
+  that are no longer listed are hidden, their pending redemptions refunded, and deleted.
+- New Helix calls: `UpdateCustomRewardAsync` with a full spec, and `DeleteCustomRewardAsync`.
+
 ## 0.2.2
 
 - **Rewards follow the app's lifecycle.** `EnsureRewardsAsync` now hides each existing reward,
