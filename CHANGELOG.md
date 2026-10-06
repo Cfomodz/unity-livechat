@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.4
+
+- `TwitchLiveChatClient.IsInChat(userId)`: whether a viewer is in the channel's chat, from
+  Twitch's chatter list, refreshed every minute. Null when the list isn't available (the bot
+  isn't a moderator, or it hasn't loaded yet). The bot now asks for `moderator:read:chatters`,
+  so a saved bot login asks to log in again once.
+- `TwitchHelix.GetChatterIdsAsync`.
+
 ## 0.2.3
 
 - `EnsureRewardsAsync` now keeps the app's rewards in line with the list it's given: rewards it

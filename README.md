@@ -127,6 +127,7 @@ fires when they change. Errors are raised on `Error`.
 |---|---|
 | Chat, bits, subs, gifts, raids | The bot's login (`user:read:chat`, `user:write:chat`) |
 | Follows | The bot to be a moderator (`moderator:read:followers`) |
+| Who's in chat (`IsInChat`) | The bot to be a moderator (`moderator:read:chatters`) |
 | Channel points | The broadcaster's login (`channel:manage:redemptions`) and an affiliate or partner channel |
 | Stream title, category and tags | The broadcaster's login (`channel:manage:broadcast`) |
 

@@ -29,7 +29,8 @@ namespace LiveChat.Twitch
     /// </summary>
     public class TwitchLiveChatClient : LiveChatClientBase
     {
-        public static readonly string[] BotScopes = { "user:read:chat", "user:write:chat", "moderator:read:followers" };
+        public static readonly string[] BotScopes = { "user:read:chat", "user:write:chat", "moderator:read:followers", "moderator:read:chatters" };
+        private const double ChattersEverySeconds = 60;
         public static readonly string[] ChannelPointsScopes = { "channel:manage:redemptions" };
         public static readonly string[] StreamInfoScopes = { "channel:manage:broadcast" };
         private const double ValidateEverySeconds = 3600;
@@ -57,6 +58,10 @@ namespace LiveChat.Twitch
         private bool _announcedConnected;
         private bool _warnedFollows;
         private double _validateAt;
+        private double _chattersAt;
+        private bool _loadingChatters;
+        private bool _warnedChatters;
+        private HashSet<string> _chatters;
         private readonly HashSet<string> _unmanagedRewards = new HashSet<string>();
         /// <summary>Rewards <see cref="EnsureRewardsAsync"/> showed, to hide again on quit.</summary>
         private readonly List<string> _shownRewards = new List<string>();
@@ -546,6 +551,45 @@ namespace LiveChat.Twitch
             {
                 _validateAt = now + ValidateEverySeconds;
                 Run(ValidateAsync(_cts.Token));
+            }
+
+            if (IsConnected && !_loadingChatters && now >= _chattersAt)
+            {
+                _chattersAt = now + ChattersEverySeconds;
+                Run(RefreshChattersAsync(_cts.Token));
+            }
+        }
+
+        /// <summary>
+        /// Whether a viewer is in the channel's chat, from Twitch's chatter list (refreshed every
+        /// minute; Twitch's own list lags a few minutes). Null when the list isn't available yet, or
+        /// the bot isn't a moderator: decide another way then.
+        /// </summary>
+        public bool? IsInChat(string userId)
+        {
+            HashSet<string> chatters = _chatters;
+            if (chatters == null || string.IsNullOrEmpty(userId))
+                return null;
+            return chatters.Contains(userId);
+        }
+
+        private async Task RefreshChattersAsync(CancellationToken ct)
+        {
+            _loadingChatters = true;
+            try
+            {
+                _chatters = await _helix.GetChatterIdsAsync(_bot, Broadcaster.Id, ct);
+            }
+            catch (TwitchApiException e) when (e.Status == HttpStatusCode.Forbidden || e.Status == HttpStatusCode.Unauthorized)
+            {
+                _chatters = null;
+                if (!_warnedChatters)
+                    Debug.LogWarning($"[LiveChat] Can't read who's in chat ({e.Message}). The bot needs to be a moderator.");
+                _warnedChatters = true;
+            }
+            finally
+            {
+                _loadingChatters = false;
             }
         }
 

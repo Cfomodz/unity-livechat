@@ -75,6 +75,31 @@ namespace LiveChat.Twitch
             _clientId = clientId;
         }
 
+        /// <summary>
+        /// The user IDs of everyone in the channel's chat right now (Twitch's list lags a few minutes).
+        /// The account must be the broadcaster or a moderator, with moderator:read:chatters.
+        /// </summary>
+        public async Task<HashSet<string>> GetChatterIdsAsync(TwitchAccount moderator, string broadcasterId, CancellationToken ct)
+        {
+            HashSet<string> ids = new HashSet<string>(StringComparer.Ordinal);
+            string cursor = null;
+            do
+            {
+                string path = $"chat/chatters?broadcaster_id={broadcasterId}&moderator_id={moderator.UserId}&first=1000"
+                    + (cursor == null ? "" : "&after=" + Uri.EscapeDataString(cursor));
+                JObject json = await SendAsync(moderator, HttpMethod.Get, path, null, ct);
+                foreach (JToken chatter in json["data"] ?? new JArray())
+                {
+                    string id = (string)chatter["user_id"];
+                    if (!string.IsNullOrEmpty(id))
+                        ids.Add(id);
+                }
+                cursor = (string)json["pagination"].Field("cursor");
+            }
+            while (!string.IsNullOrEmpty(cursor));
+            return ids;
+        }
+
         public async Task<TwitchUser> GetUserByLoginAsync(TwitchAccount account, string login, CancellationToken ct)
         {
             JObject json = await SendAsync(account, HttpMethod.Get, "users?login=" + Uri.EscapeDataString(login), null, ct);
