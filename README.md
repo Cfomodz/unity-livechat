@@ -100,6 +100,12 @@ var twitch = gameObject.AddComponent<TwitchLiveChatClient>();
 twitch.ClientId = "your-public-client-id";
 twitch.BotLogin = "mychannel_bot";      // optional: refuse any other account at the bot login
 twitch.ChannelPoints = true;            // optional: the broadcaster logs in too
+twitch.StreamInfo = new TwitchStreamInfo // optional: set when the broadcaster logs in
+{
+    Title = "Digging with chat",
+    Category = "Games + Demos",
+    Tags = new[] { "English", "Interactive" }
+};
 twitch.TokenFilePath = "...";           // optional: defaults to persistentDataPath/livechat-tokens.json
 twitch.AuthorizationRequired += auth => Debug.Log(auth.Instructions); // or show it on screen
 twitch.Connect(new LiveChatConnectConfig { ChannelName = "mychannel" });
@@ -122,11 +128,23 @@ fires when they change. Errors are raised on `Error`.
 | Chat, bits, subs, gifts, raids | The bot's login (`user:read:chat`, `user:write:chat`) |
 | Follows | The bot to be a moderator (`moderator:read:followers`) |
 | Channel points | The broadcaster's login (`channel:manage:redemptions`) and an affiliate or partner channel |
+| Stream title, category and tags | The broadcaster's login (`channel:manage:broadcast`) |
 
-Only the app that created a reward can fulfil or refund its redemptions, so let the game create
+Only the app that created a reward can fulfil, refund, hide or delete it, so let the game create
 its rewards with `await twitch.EnsureRewardsAsync(specs)` once `ChannelPointsConnected` fires. It
-creates any that are missing (matched by title) and returns their IDs. Redemptions of rewards
-made elsewhere still arrive, but `CompleteRedemption` can't change them.
+creates any that are missing (matched by title) and returns their IDs. Rewards it already made
+are hidden, redemptions viewers made while the app wasn't running are refunded, and the rewards
+are shown again. When the app quits it hides them (`HideRewardsOnQuit`), so viewers can't redeem
+rewards nobody will handle. Redemptions of rewards made elsewhere still arrive, but
+`CompleteRedemption` can't change them; `GetOtherRewardsAsync` lists those rewards so you can
+delete leftovers in the Creator Dashboard.
+
+### Stream info
+
+Set `StreamInfo` before `Connect` and the title, category (by name, matched exactly or by search)
+and tags are applied as soon as the broadcaster logs in; call `SetStreamInfoAsync` to change them
+later. Tags replace the channel's tags: up to 10, each up to 25 letters or digits.
+`StreamInfoStatus` says whether it worked.
 
 ### Rate limits
 

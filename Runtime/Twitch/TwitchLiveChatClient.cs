@@ -30,8 +30,10 @@ namespace LiveChat.Twitch
     public class TwitchLiveChatClient : LiveChatClientBase
     {
         public static readonly string[] BotScopes = { "user:read:chat", "user:write:chat", "moderator:read:followers" };
-        public static readonly string[] BroadcasterScopes = { "channel:manage:redemptions" };
+        public static readonly string[] ChannelPointsScopes = { "channel:manage:redemptions" };
+        public static readonly string[] StreamInfoScopes = { "channel:manage:broadcast" };
         private const double ValidateEverySeconds = 3600;
+        private static readonly TimeSpan QuitTimeout = TimeSpan.FromSeconds(3);
 
         [Tooltip("Client ID of a Twitch application registered as a Public client.")]
         [SerializeField] private string _clientId;
@@ -39,6 +41,8 @@ namespace LiveChat.Twitch
         [SerializeField] private string _botLogin;
         [Tooltip("Have the broadcaster log in too, to receive channel point redemptions.")]
         [SerializeField] private bool _channelPoints;
+        [Tooltip("Title, category and tags to set when the broadcaster logs in. Leave empty to leave the stream info alone.")]
+        [SerializeField] private TwitchStreamInfo _streamInfo = new TwitchStreamInfo();
         [Tooltip("Where tokens are saved. Keep it out of version control.")]
         [SerializeField] private string _tokenFilePath;
 
@@ -54,11 +58,22 @@ namespace LiveChat.Twitch
         private bool _warnedFollows;
         private double _validateAt;
         private readonly HashSet<string> _unmanagedRewards = new HashSet<string>();
+        /// <summary>Rewards <see cref="EnsureRewardsAsync"/> showed, to hide again on quit.</summary>
+        private readonly List<string> _shownRewards = new List<string>();
 
         public string ClientId { get => _clientId; set => _clientId = value; }
         public string BotLogin { get => _botLogin; set => _botLogin = value; }
         public bool ChannelPoints { get => _channelPoints; set => _channelPoints = value; }
+        /// <summary>Applied once the broadcaster logs in. Setting any field makes the broadcaster log in.</summary>
+        public TwitchStreamInfo StreamInfo { get => _streamInfo; set => _streamInfo = value ?? new TwitchStreamInfo(); }
         public string TokenFilePath { get => _tokenFilePath; set => _tokenFilePath = value; }
+        /// <summary>Hide the rewards <see cref="EnsureRewardsAsync"/> showed when the app quits, so viewers can't redeem them while it isn't running.</summary>
+        public bool HideRewardsOnQuit { get; set; } = true;
+
+        /// <summary>The broadcaster logs in for channel points, stream info, or both.</summary>
+        public bool NeedsBroadcaster => _channelPoints || !_streamInfo.IsEmpty;
+        /// <summary>What happened to <see cref="StreamInfo"/>, for an on-screen status; null if there's none to set.</summary>
+        public string StreamInfoStatus { get; private set; }
 
         public TwitchConnectionState State { get; private set; }
         /// <summary>One line for an on-screen status display.</summary>
@@ -129,9 +144,12 @@ namespace LiveChat.Twitch
         }
 
         /// <summary>
-        /// Creates any of these rewards that this app hasn't created yet (matched by title) and
-        /// returns every one's ID by title. Needs <see cref="ChannelPoints"/> and an affiliate or
-        /// partner channel. Only rewards created this way can be fulfilled or refunded.
+        /// Gets these rewards ready and returns each one's ID by title. Rewards this app already
+        /// created (matched by title) are hidden, their redemptions from while the app wasn't running
+        /// are refunded, and they're shown again; missing ones are created. With
+        /// <see cref="HideRewardsOnQuit"/>, they're hidden again when the app quits. Needs
+        /// <see cref="ChannelPoints"/> and an affiliate or partner channel. Only rewards created this
+        /// way can be fulfilled or refunded.
         /// </summary>
         public async Task<IReadOnlyDictionary<string, string>> EnsureRewardsAsync(IEnumerable<TwitchRewardSpec> rewards)
         {
@@ -142,12 +160,16 @@ namespace LiveChat.Twitch
 
             try
             {
-                foreach (TwitchCustomReward existing in await _helix.GetCustomRewardsAsync(_broadcasterAccount, true, ct))
-                    ids[existing.Title] = existing.Id;
+                Dictionary<string, TwitchCustomReward> existing = (await _helix.GetCustomRewardsAsync(_broadcasterAccount, true, ct))
+                    .GroupBy(reward => reward.Title).ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
                 foreach (TwitchRewardSpec spec in rewards)
                 {
-                    if (ids.ContainsKey(spec.Title))
+                    if (existing.TryGetValue(spec.Title, out TwitchCustomReward reward))
+                    {
+                        await ReopenRewardAsync(reward, ct);
+                        ids[reward.Title] = reward.Id;
                         continue;
+                    }
                     try
                     {
                         TwitchCustomReward created = await _helix.CreateCustomRewardAsync(_broadcasterAccount, spec, ct);
@@ -165,8 +187,71 @@ namespace LiveChat.Twitch
             {
                 Debug.LogWarning($"[LiveChat] Channel point rewards need an affiliate or partner channel: {e.Message}");
             }
+
+            foreach (string id in ids.Values)
+                if (!_shownRewards.Contains(id))
+                    _shownRewards.Add(id);
             return ids;
         }
+
+        /// <summary>
+        /// The channel's rewards that this app didn't create, so it can't change or delete them
+        /// (made in the Creator Dashboard or by another app). Empty without a broadcaster login.
+        /// </summary>
+        public async Task<IReadOnlyList<TwitchCustomReward>> GetOtherRewardsAsync()
+        {
+            if (_broadcasterAccount == null || !_broadcasterAccount.IsAuthorized)
+                return Array.Empty<TwitchCustomReward>();
+            CancellationToken ct = _cts?.Token ?? CancellationToken.None;
+            HashSet<string> mine = new HashSet<string>((await _helix.GetCustomRewardsAsync(_broadcasterAccount, true, ct)).Select(reward => reward.Id));
+            return (await _helix.GetCustomRewardsAsync(_broadcasterAccount, false, ct)).Where(reward => !mine.Contains(reward.Id)).ToList();
+        }
+
+        /// <summary>
+        /// Hides a reward, refunds what viewers redeemed while nobody was handling it, then shows it.
+        /// Hiding first means no new redemption can be refunded by mistake.
+        /// </summary>
+        private async Task ReopenRewardAsync(TwitchCustomReward reward, CancellationToken ct)
+        {
+            if (reward.IsEnabled)
+                await _helix.UpdateCustomRewardAsync(_broadcasterAccount, reward.Id, false, ct);
+            List<string> stale = await _helix.GetUnfulfilledRedemptionIdsAsync(_broadcasterAccount, reward.Id, ct);
+            foreach (string redemptionId in stale)
+                await _helix.UpdateRedemptionStatusAsync(_broadcasterAccount, reward.Id, redemptionId, false, ct);
+            if (stale.Count > 0)
+                Debug.Log($"[LiveChat] Refunded {stale.Count} '{reward.Title}' redemption(s) made while the app wasn't running");
+            await _helix.UpdateCustomRewardAsync(_broadcasterAccount, reward.Id, true, ct);
+        }
+
+        /// <summary>
+        /// Hides the rewards <see cref="EnsureRewardsAsync"/> showed, waiting at most a few seconds:
+        /// the app is about to exit, so this runs off the main thread and blocks for it.
+        /// </summary>
+        private void HideRewardsBeforeQuit()
+        {
+            if (!HideRewardsOnQuit || _shownRewards.Count == 0 || _broadcasterAccount == null || !_broadcasterAccount.IsAuthorized)
+                return;
+            string[] rewardIds = _shownRewards.ToArray();
+            _shownRewards.Clear();
+            TwitchAccount broadcaster = _broadcasterAccount;
+            TwitchHelix helix = _helix;
+            Task hide = Task.Run(async () =>
+            {
+                foreach (string id in rewardIds)
+                    await helix.UpdateCustomRewardAsync(broadcaster, id, false, CancellationToken.None);
+            });
+            try
+            {
+                if (!hide.Wait(QuitTimeout))
+                    Debug.LogWarning("[LiveChat] Twitch didn't answer in time; the channel point rewards may still be showing.");
+            }
+            catch (AggregateException e)
+            {
+                Debug.LogWarning($"[LiveChat] Couldn't hide the channel point rewards: {e.InnerException?.Message}");
+            }
+        }
+
+        private void OnApplicationQuit() => HideRewardsBeforeQuit();
 
         private void Queue(string message, string replyTo)
         {
@@ -216,22 +301,70 @@ namespace LiveChat.Twitch
             Broadcaster = await _helix.GetUserByLoginAsync(_bot, channel, ct)
                 ?? throw new InvalidOperationException($"There's no Twitch channel named '{channel}'.");
 
-            if (_channelPoints)
+            if (NeedsBroadcaster)
             {
-                _broadcasterAccount = new TwitchAccount("broadcaster", _clientId, BroadcasterScopes, store) { ExpectedLogin = Broadcaster.Login };
+                List<string> scopes = new List<string>();
+                if (_channelPoints)
+                    scopes.AddRange(ChannelPointsScopes);
+                if (!_streamInfo.IsEmpty)
+                    scopes.AddRange(StreamInfoScopes);
+                _broadcasterAccount = new TwitchAccount("broadcaster", _clientId, scopes, store) { ExpectedLogin = Broadcaster.Login };
                 await LogInAsync(_broadcasterAccount, "broadcaster", ct);
+                if (!_streamInfo.IsEmpty)
+                    Run(ApplyStreamInfoAsync(_streamInfo, ct));
             }
 
             SetState(TwitchConnectionState.Connecting, $"Connecting to #{channel}…");
             double now = Time.realtimeSinceStartupAsDouble;
             _botSocket = CreateSocket(sessionId => SubscribeBotAsync(sessionId, ct));
             _botSocket.Start(now);
-            if (_broadcasterAccount != null)
+            if (_channelPoints)
             {
                 _broadcasterSocket = CreateSocket(sessionId => SubscribeBroadcasterAsync(sessionId, ct));
                 _broadcasterSocket.Start(now);
             }
             _validateAt = now + ValidateEverySeconds;
+        }
+
+        /// <summary>Sets the stream title, category and tags. Failures are reported in <see cref="StreamInfoStatus"/>, not fatal.</summary>
+        public Task SetStreamInfoAsync(TwitchStreamInfo info) => ApplyStreamInfoAsync(info, _cts?.Token ?? CancellationToken.None);
+
+        private async Task ApplyStreamInfoAsync(TwitchStreamInfo info, CancellationToken ct)
+        {
+            if (info == null || info.IsEmpty)
+                return;
+            if (_broadcasterAccount == null || !_broadcasterAccount.IsAuthorized || !_broadcasterAccount.Scopes.Contains(StreamInfoScopes[0]))
+            {
+                StreamInfoStatus = "Stream info: needs the broadcaster's login with stream info set up";
+                StatusChanged?.Invoke();
+                return;
+            }
+
+            string categoryId = null;
+            if (!string.IsNullOrWhiteSpace(info.Category))
+            {
+                categoryId = await _helix.FindCategoryIdAsync(_broadcasterAccount, info.Category.Trim(), ct);
+                if (categoryId == null)
+                    Debug.LogWarning($"[LiveChat] Twitch has no category called '{info.Category}'; leaving the category as it is.");
+            }
+            string[] tags = info.Tags?.Select(tag => tag?.Trim()).Where(tag => !string.IsNullOrEmpty(tag)).Take(10).ToArray();
+            if (tags != null && tags.Length == 0)
+                tags = null;
+
+            try
+            {
+                await _helix.ModifyChannelInformationAsync(_broadcasterAccount, info.Title, categoryId, tags, ct);
+                StreamInfoStatus = "Stream info set";
+                Debug.Log($"[LiveChat] Stream info set: '{info.Title}'"
+                    + (categoryId != null ? $" in {info.Category}" : "") + (tags != null ? $", tags {string.Join(", ", tags)}" : ""));
+            }
+            catch (TwitchApiException e) when (e.Status == HttpStatusCode.BadRequest)
+            {
+                // Usually a tag with spaces or symbols, or one over 25 characters
+                StreamInfoStatus = "Stream info rejected: " + e.Message;
+                Debug.LogWarning($"[LiveChat] Twitch rejected the stream info: {e.Message}");
+            }
+            StatusChanged?.Invoke();
         }
 
         private async Task LogInAsync(TwitchAccount account, string label, CancellationToken ct)

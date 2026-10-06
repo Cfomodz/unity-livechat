@@ -45,6 +45,23 @@ namespace LiveChat.Twitch
         public string Id;
         public string Title;
         public int Cost;
+        /// <summary>False hides the reward from viewers.</summary>
+        public bool IsEnabled;
+        /// <summary>True shows the reward but stops viewers redeeming it.</summary>
+        public bool IsPaused;
+    }
+
+    /// <summary>What <see cref="TwitchHelix.ModifyChannelInformationAsync"/> changes. Null fields are left as they are.</summary>
+    [Serializable]
+    public class TwitchStreamInfo
+    {
+        public string Title;
+        /// <summary>A category (game) name as Twitch shows it, e.g. "Minecraft" or "Games + Demos".</summary>
+        public string Category;
+        /// <summary>Up to 10 tags of up to 25 letters or digits each. They replace the channel's tags.</summary>
+        public string[] Tags;
+
+        public bool IsEmpty => string.IsNullOrWhiteSpace(Title) && string.IsNullOrWhiteSpace(Category) && (Tags == null || Tags.Length == 0);
     }
 
     /// <summary>The Helix calls this package uses, authorized with a <see cref="TwitchAccount"/>.</summary>
@@ -137,11 +154,56 @@ namespace LiveChat.Twitch
                 new { status = fulfilled ? "FULFILLED" : "CANCELED" }, ct);
         }
 
+        /// <summary>Shows or hides one of this app's rewards. Only the app that created a reward can change it.</summary>
+        public Task UpdateCustomRewardAsync(TwitchAccount broadcaster, string rewardId, bool isEnabled, CancellationToken ct)
+        {
+            return SendAsync(broadcaster, new HttpMethod("PATCH"),
+                $"channel_points/custom_rewards?broadcaster_id={broadcaster.UserId}&id={rewardId}",
+                new { is_enabled = isEnabled }, ct);
+        }
+
+        /// <summary>The IDs of up to 50 of a reward's redemptions still waiting to be fulfilled or refunded.</summary>
+        public async Task<List<string>> GetUnfulfilledRedemptionIdsAsync(TwitchAccount broadcaster, string rewardId, CancellationToken ct)
+        {
+            JObject json = await SendAsync(broadcaster, HttpMethod.Get,
+                $"channel_points/custom_rewards/redemptions?broadcaster_id={broadcaster.UserId}&reward_id={rewardId}&status=UNFULFILLED&first=50", null, ct);
+            return (json["data"] ?? new JArray()).Select(redemption => (string)redemption["id"]).Where(id => id != null).ToList();
+        }
+
+        /// <summary>Finds a category by its exact name, or by search if the name isn't exact. Null if there's none.</summary>
+        public async Task<string> FindCategoryIdAsync(TwitchAccount account, string name, CancellationToken ct)
+        {
+            JObject exact = await SendAsync(account, HttpMethod.Get, "games?name=" + Uri.EscapeDataString(name), null, ct);
+            string id = (string)exact["data"]?.FirstOrDefault()?["id"];
+            if (id != null)
+                return id;
+
+            JObject search = await SendAsync(account, HttpMethod.Get, "search/categories?first=10&query=" + Uri.EscapeDataString(name), null, ct);
+            JToken match = (search["data"] ?? new JArray()).FirstOrDefault(category =>
+                string.Equals((string)category["name"], name, StringComparison.OrdinalIgnoreCase));
+            return (string)match?["id"];
+        }
+
+        /// <summary>Sets the broadcaster's stream title, category and tags. Needs channel:manage:broadcast.</summary>
+        public Task ModifyChannelInformationAsync(TwitchAccount broadcaster, string title, string categoryId, string[] tags, CancellationToken ct)
+        {
+            Dictionary<string, object> body = new Dictionary<string, object>();
+            if (!string.IsNullOrWhiteSpace(title))
+                body["title"] = title.Trim();
+            if (!string.IsNullOrEmpty(categoryId))
+                body["game_id"] = categoryId;
+            if (tags != null)
+                body["tags"] = tags;
+            return SendAsync(broadcaster, new HttpMethod("PATCH"), $"channels?broadcaster_id={broadcaster.UserId}", body, ct);
+        }
+
         private static TwitchCustomReward RewardFrom(JToken reward) => reward == null ? null : new TwitchCustomReward
         {
             Id = (string)reward["id"],
             Title = (string)reward["title"],
-            Cost = (int?)reward["cost"] ?? 0
+            Cost = (int?)reward["cost"] ?? 0,
+            IsEnabled = (bool?)reward["is_enabled"] ?? true,
+            IsPaused = (bool?)reward["is_paused"] ?? false
         };
 
         /// <summary>

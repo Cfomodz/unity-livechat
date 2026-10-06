@@ -53,6 +53,16 @@ namespace LiveChat.Tests
         }
 
         [Test]
+        public void StreamInfoIsEmptyUntilSomethingIsSet()
+        {
+            Assert.IsTrue(new TwitchStreamInfo().IsEmpty);
+            Assert.IsTrue(new TwitchStreamInfo { Title = "  ", Tags = new string[0] }.IsEmpty);
+            Assert.IsFalse(new TwitchStreamInfo { Title = "Deep Dig" }.IsEmpty);
+            Assert.IsFalse(new TwitchStreamInfo { Category = "Games + Demos" }.IsEmpty);
+            Assert.IsFalse(new TwitchStreamInfo { Tags = new[] { "English" } }.IsEmpty);
+        }
+
+        [Test]
         public void ChecksScopes()
         {
             TwitchToken token = new TwitchToken { Scopes = new[] { "user:read:chat", "user:write:chat" } };
