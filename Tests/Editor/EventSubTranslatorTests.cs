@@ -45,6 +45,47 @@ namespace LiveChat.Tests
         }
 
         [Test]
+        public void RealPayloadsSendAbsentObjectsAsNull()
+        {
+            // As Twitch sends an ordinary message: unused objects are JSON null, not missing
+            LiveChatMessage message = (LiveChatMessage)Translate(EventSubTranslator.ChatMessage, @"{
+                ""broadcaster_user_id"": ""1"", ""broadcaster_user_login"": ""streamer"", ""broadcaster_user_name"": ""Streamer"",
+                ""source_broadcaster_user_id"": null, ""source_broadcaster_user_login"": null, ""source_broadcaster_user_name"": null,
+                ""chatter_user_id"": ""42"", ""chatter_user_login"": ""viewer"", ""chatter_user_name"": ""Viewer"",
+                ""message_id"": ""m1"", ""source_message_id"": null, ""is_source_only"": null,
+                ""message"": { ""text"": ""!join 5"", ""fragments"": [
+                    { ""type"": ""text"", ""text"": ""!join 5"", ""cheermote"": null, ""emote"": null, ""mention"": null } ] },
+                ""color"": ""#FF0000"",
+                ""badges"": [ { ""set_id"": ""subscriber"", ""id"": ""12"", ""info"": ""16"" } ], ""source_badges"": null,
+                ""message_type"": ""text"", ""cheer"": null, ""reply"": null,
+                ""channel_points_custom_reward_id"": null, ""channel_points_animation_id"": null
+            }");
+            Assert.AreEqual("!join 5", message.RawMessage);
+            Assert.AreEqual(0, message.Bits);
+            Assert.IsTrue(message.IsSubscriber);
+            Assert.IsEmpty(message.Emotes);
+
+            LiveChatRaidEvent raid = (LiveChatRaidEvent)Translate(EventSubTranslator.ChatNotification, @"{
+                ""chatter_user_id"": ""5"", ""chatter_user_login"": ""raider"", ""chatter_user_name"": ""Raider"", ""chatter_is_anonymous"": false,
+                ""badges"": null, ""system_message"": ""5 raiders from Raider have joined!"", ""message_id"": ""n1"",
+                ""message"": { ""text"": """", ""fragments"": null },
+                ""notice_type"": ""raid"", ""sub"": null, ""resub"": null, ""sub_gift"": null, ""community_sub_gift"": null,
+                ""gift_paid_upgrade"": null, ""prime_paid_upgrade"": null, ""pay_it_forward"": null, ""announcement"": null,
+                ""charity_donation"": null, ""bits_badge_tier"": null, ""unraid"": null,
+                ""raid"": { ""user_id"": ""5"", ""user_login"": ""raider"", ""user_name"": ""Raider"", ""viewer_count"": 5, ""profile_image_url"": null }
+            }");
+            Assert.AreEqual(5, raid.Viewers);
+            Assert.IsNull(raid.ProfileImageUrl);
+
+            LiveChatSubscriptionEvent sub = (LiveChatSubscriptionEvent)Translate(EventSubTranslator.ChatNotification, @"{
+                ""chatter_user_id"": ""6"", ""chatter_user_login"": ""subber"", ""chatter_user_name"": ""Subber"",
+                ""badges"": null, ""message"": null, ""notice_type"": ""resub"", ""sub"": null, ""resub"": null
+            }");
+            Assert.AreEqual(1, sub.CumulativeMonths, "A missing resub object falls back to defaults");
+            Assert.IsNull(sub.Message);
+        }
+
+        [Test]
         public void ChatMessageFindsEmotesAndTheBroadcaster()
         {
             LiveChatMessage message = (LiveChatMessage)Translate(EventSubTranslator.ChatMessage, @"{

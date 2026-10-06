@@ -103,7 +103,7 @@ namespace LiveChat.Twitch
                 if ((int)status >= 500)
                     continue; // Twitch is having trouble: keep polling
 
-                string message = ((string)json?["message"] ?? string.Empty).ToLowerInvariant();
+                string message = ((string)json.Field("message") ?? string.Empty).ToLowerInvariant();
                 if (message.Contains("authorization_pending"))
                     continue;
                 if (message.Contains("slow_down"))
@@ -113,7 +113,7 @@ namespace LiveChat.Twitch
                 }
                 if (message.Contains("invalid device code") || message.Contains("expired"))
                     return null;
-                throw new TwitchAuthException($"Twitch login failed: {(string)json?["message"] ?? status.ToString()}");
+                throw new TwitchAuthException($"Twitch login failed: {(string)json.Field("message") ?? status.ToString()}");
             }
             return null;
         }
@@ -133,7 +133,7 @@ namespace LiveChat.Twitch
                 return TokenFrom(json);
             if (status == HttpStatusCode.BadRequest || status == HttpStatusCode.Unauthorized)
                 return null;
-            string failure = $"Refreshing the Twitch token failed: {(int)status} {(string)json?["message"]}";
+            string failure = $"Refreshing the Twitch token failed: {(int)status} {(string)json.Field("message")}";
             if ((int)status >= 500)
                 throw new HttpRequestException(failure); // Twitch is having trouble: worth retrying
             throw new TwitchAuthException(failure);
@@ -179,7 +179,7 @@ namespace LiveChat.Twitch
             (HttpStatusCode status, JObject json) = await PostFormRawAsync(url, form, ct);
             if (status == HttpStatusCode.OK)
                 return json;
-            string message = (string)json?["message"];
+            string message = (string)json.Field("message");
             if ((int)status >= 500)
                 throw new HttpRequestException($"Twitch returned {(int)status}: {message}");
             if (message != null && message.IndexOf("invalid client", StringComparison.OrdinalIgnoreCase) >= 0)

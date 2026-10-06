@@ -34,7 +34,8 @@ namespace LiveChat
         {
         }
 
-        public void SendMessage(string message)
+        /// <summary>Sends to <see cref="DefaultChannel"/>. Hides Unity's Component.SendMessage(methodName), which this class doesn't use.</summary>
+        public new void SendMessage(string message)
         {
             if (string.IsNullOrEmpty(DefaultChannel))
                 return;

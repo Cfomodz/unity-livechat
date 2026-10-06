@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+- Fix: real Twitch messages threw `InvalidOperationException: Cannot access child value on JValue`.
+  Twitch sends unused objects as JSON null (`"cheer": null`), and indexing into them threw.
+  Every nested read now goes through a null-safe helper, with a test using Twitch-shaped payloads.
+
 ## 0.2.0
 
 Twitch now goes through EventSub and the Helix API instead of IRC and PubSub. Twitch shut
