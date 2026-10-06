@@ -131,9 +131,17 @@ namespace LiveChat.Twitch
             }, ct);
             if (status == HttpStatusCode.OK)
                 return TokenFrom(json);
+            string message = (string)json.Field("message") ?? string.Empty;
+            if (message.IndexOf("client secret", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                // Logging in again wouldn't help: every token from this app would die within hours
+                throw new TwitchAuthException("This Twitch app is registered as a Confidential client, so its logins "
+                    + "can't be refreshed without a secret and would expire every few hours. Register an app with "
+                    + "Client Type: Public at dev.twitch.tv/console and use its client ID.");
+            }
             if (status == HttpStatusCode.BadRequest || status == HttpStatusCode.Unauthorized)
                 return null;
-            string failure = $"Refreshing the Twitch token failed: {(int)status} {(string)json.Field("message")}";
+            string failure = $"Refreshing the Twitch token failed: {(int)status} {message}";
             if ((int)status >= 500)
                 throw new HttpRequestException(failure); // Twitch is having trouble: worth retrying
             throw new TwitchAuthException(failure);

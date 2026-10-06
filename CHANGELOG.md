@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.2.2
+
+- **Rewards follow the app's lifecycle.** `EnsureRewardsAsync` now hides each existing reward,
+  refunds redemptions made while the app wasn't running, and shows it again; on quit
+  (`HideRewardsOnQuit`, on by default) it hides them, so viewers can't redeem rewards nobody
+  will handle. Hiding first means a new redemption can't be refunded by mistake.
+- `GetOtherRewardsAsync` lists the channel's rewards this app didn't create. Twitch only lets the
+  creating app change or delete a reward, so these need removing by hand.
+- **Stream info.** Set `StreamInfo` (title, category by name, tags) and it's applied once the
+  broadcaster logs in, or call `SetStreamInfoAsync` later. `StreamInfoStatus` reports the result.
+  The broadcaster logs in when `ChannelPoints` is on or `StreamInfo` has anything set, and is asked
+  for `channel:manage:broadcast` only when stream info is used. A saved broadcaster login without
+  that scope asks to log in again once.
+- `BroadcasterScopes` is split into `ChannelPointsScopes` and `StreamInfoScopes`.
+- A Twitch app registered as a Confidential client now fails with an explanation. Its tokens
+  can't be refreshed without a secret, so they expired within hours, and the client used to
+  treat that as an ordinary expiry: it deleted the login and asked for a new one.
+- `TwitchCustomReward` has `IsEnabled` and `IsPaused`. New Helix calls: `UpdateCustomRewardAsync`,
+  `GetUnfulfilledRedemptionIdsAsync`, `FindCategoryIdAsync`, `ModifyChannelInformationAsync`.
+
 ## 0.2.1
 
 - Fix: real Twitch messages threw `InvalidOperationException: Cannot access child value on JValue`.
