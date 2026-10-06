@@ -144,29 +144,46 @@ namespace LiveChat.Twitch
         }
 
         /// <summary>
-        /// Gets these rewards ready and returns each one's ID by title. Rewards this app already
-        /// created (matched by title) are hidden, their redemptions from while the app wasn't running
-        /// are refunded, and they're shown again; missing ones are created. With
-        /// <see cref="HideRewardsOnQuit"/>, they're hidden again when the app quits. Needs
-        /// <see cref="ChannelPoints"/> and an affiliate or partner channel. Only rewards created this
-        /// way can be fulfilled or refunded.
+        /// Makes the channel's rewards from this app match <paramref name="rewards"/> and returns
+        /// each one's ID by title. Rewards this app already created (matched by title) are hidden,
+        /// their redemptions from while the app wasn't running are refunded, and they're updated to
+        /// the spec (cost, prompt, input) and shown again; missing ones are created. With
+        /// <paramref name="removeUnlisted"/>, this app's rewards that aren't listed are refunded and
+        /// deleted. With <see cref="HideRewardsOnQuit"/>, they're hidden again when the app quits.
+        /// Needs <see cref="ChannelPoints"/> and an affiliate or partner channel. Only rewards
+        /// created this way can be fulfilled or refunded.
         /// </summary>
-        public async Task<IReadOnlyDictionary<string, string>> EnsureRewardsAsync(IEnumerable<TwitchRewardSpec> rewards)
+        public async Task<IReadOnlyDictionary<string, string>> EnsureRewardsAsync(IEnumerable<TwitchRewardSpec> rewards, bool removeUnlisted = false)
         {
             Dictionary<string, string> ids = new Dictionary<string, string>(StringComparer.Ordinal);
             if (_broadcasterAccount == null || !_broadcasterAccount.IsAuthorized)
                 return ids;
             CancellationToken ct = _cts?.Token ?? CancellationToken.None;
+            List<TwitchRewardSpec> specs = rewards.ToList();
 
             try
             {
-                Dictionary<string, TwitchCustomReward> existing = (await _helix.GetCustomRewardsAsync(_broadcasterAccount, true, ct))
+                List<TwitchCustomReward> mine = await _helix.GetCustomRewardsAsync(_broadcasterAccount, true, ct);
+                Dictionary<string, TwitchCustomReward> existing = mine
                     .GroupBy(reward => reward.Title).ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
-                foreach (TwitchRewardSpec spec in rewards)
+
+                if (removeUnlisted)
+                {
+                    HashSet<string> wanted = new HashSet<string>(specs.Select(spec => spec.Title), StringComparer.Ordinal);
+                    foreach (TwitchCustomReward retired in mine.Where(reward => !wanted.Contains(reward.Title)))
+                    {
+                        await _helix.UpdateCustomRewardAsync(_broadcasterAccount, retired.Id, false, ct);
+                        await RefundStaleAsync(retired, ct);
+                        await _helix.DeleteCustomRewardAsync(_broadcasterAccount, retired.Id, ct);
+                        Debug.Log($"[LiveChat] Deleted channel point reward '{retired.Title}', which is no longer used");
+                    }
+                }
+
+                foreach (TwitchRewardSpec spec in specs)
                 {
                     if (existing.TryGetValue(spec.Title, out TwitchCustomReward reward))
                     {
-                        await ReopenRewardAsync(reward, ct);
+                        await ReopenRewardAsync(reward, spec, ct);
                         ids[reward.Title] = reward.Id;
                         continue;
                     }
@@ -208,19 +225,27 @@ namespace LiveChat.Twitch
         }
 
         /// <summary>
-        /// Hides a reward, refunds what viewers redeemed while nobody was handling it, then shows it.
-        /// Hiding first means no new redemption can be refunded by mistake.
+        /// Hides a reward, refunds what viewers redeemed while nobody was handling it, then updates
+        /// it to <paramref name="spec"/> and shows it. Hiding first means no new redemption can be
+        /// refunded by mistake.
         /// </summary>
-        private async Task ReopenRewardAsync(TwitchCustomReward reward, CancellationToken ct)
+        private async Task ReopenRewardAsync(TwitchCustomReward reward, TwitchRewardSpec spec, CancellationToken ct)
         {
             if (reward.IsEnabled)
                 await _helix.UpdateCustomRewardAsync(_broadcasterAccount, reward.Id, false, ct);
+            await RefundStaleAsync(reward, ct);
+            await _helix.UpdateCustomRewardAsync(_broadcasterAccount, reward.Id, spec, true, ct);
+            if (reward.Cost != spec.Cost)
+                Debug.Log($"[LiveChat] Changed '{reward.Title}' from {reward.Cost} to {spec.Cost} points");
+        }
+
+        private async Task RefundStaleAsync(TwitchCustomReward reward, CancellationToken ct)
+        {
             List<string> stale = await _helix.GetUnfulfilledRedemptionIdsAsync(_broadcasterAccount, reward.Id, ct);
             foreach (string redemptionId in stale)
                 await _helix.UpdateRedemptionStatusAsync(_broadcasterAccount, reward.Id, redemptionId, false, ct);
             if (stale.Count > 0)
                 Debug.Log($"[LiveChat] Refunded {stale.Count} '{reward.Title}' redemption(s) made while the app wasn't running");
-            await _helix.UpdateCustomRewardAsync(_broadcasterAccount, reward.Id, true, ct);
         }
 
         /// <summary>

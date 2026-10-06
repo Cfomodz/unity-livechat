@@ -134,7 +134,9 @@ Only the app that created a reward can fulfil, refund, hide or delete it, so let
 its rewards with `await twitch.EnsureRewardsAsync(specs)` once `ChannelPointsConnected` fires. It
 creates any that are missing (matched by title) and returns their IDs. Rewards it already made
 are hidden, redemptions viewers made while the app wasn't running are refunded, and the rewards
-are shown again. When the app quits it hides them (`HideRewardsOnQuit`), so viewers can't redeem
+are updated to the spec (cost, prompt, input) and shown again, so a price changed in code
+changes on Twitch. Pass `removeUnlisted: true` to also delete the app's rewards that are no longer
+in the list (pending redemptions are refunded first). When the app quits it hides them (`HideRewardsOnQuit`), so viewers can't redeem
 rewards nobody will handle. Redemptions of rewards made elsewhere still arrive, but
 `CompleteRedemption` can't change them; `GetOtherRewardsAsync` lists those rewards so you can
 delete leftovers in the Creator Dashboard.
