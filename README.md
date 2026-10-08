@@ -11,6 +11,8 @@ Live chat clients and a chat command router for Unity (`com.cfomodz.livechat`).
 - **Command router:** parses `!command args` messages and dispatches them to
   `ChatCommandHandler` components, with per-command permissions
   (anyone, subscriber, VIP, moderator, broadcaster).
+- **OBS control:** switch scenes and start or stop the stream through obs-websocket, with
+  broadcaster chat commands.
 - A YouTube client stub.
 
 Extracted from [Interactive-Livestream-Chaos-League](https://github.com/Cfomodz/Interactive-Livestream-Chaos-League),
@@ -24,7 +26,7 @@ Add the package to your project's `Packages/manifest.json`:
 ```json
 {
   "dependencies": {
-    "com.cfomodz.livechat": "https://github.com/Cfomodz/unity-livechat.git#v0.3.0"
+    "com.cfomodz.livechat": "https://github.com/Cfomodz/unity-livechat.git#v0.4.0"
   }
 }
 ```
@@ -140,7 +142,9 @@ creates any that are missing (matched by title) and returns their IDs. Rewards i
 are hidden, redemptions viewers made while the app wasn't running are refunded, and the rewards
 are updated to the spec (cost, prompt, input) and shown again, so a price changed in code
 changes on Twitch. Pass `removeUnlisted: true` to also delete the app's rewards that are no longer
-in the list (pending redemptions are refunded first). When the app quits it hides them (`HideRewardsOnQuit`), so viewers can't redeem
+in the list (pending redemptions are refunded first). **Don't use it when several games share one
+Twitch app (client ID):** Twitch sees them as the same app, so each game's rewards look unlisted to
+the others and get deleted. When the app quits it hides them (`HideRewardsOnQuit`), so viewers can't redeem
 rewards nobody will handle. Redemptions of rewards made elsewhere still arrive, but
 `CompleteRedemption` can't change them; `GetOtherRewardsAsync` lists those rewards so you can
 delete leftovers in the Creator Dashboard.
@@ -185,6 +189,45 @@ second for a normal account, 100 per 30 s for a moderator or VIP), drops a messa
 within 30 s, and trims messages to 500 characters. The client notices the bot's moderator badge
 on its own messages and raises the limit.
 
+## OBS control
+
+`LiveChat.Obs` drives OBS through obs-websocket v5 (built into OBS 28 and later): switch the program
+scene, and start or stop the stream. It's separate from the chat clients, and off unless enabled.
+
+In OBS: **Tools → WebSocket Server Settings**, tick **Enable WebSocket server**, keep port 4455, tick
+**Enable Authentication** and set a password.
+
+```csharp
+using LiveChat.Obs;
+
+ObsController obs = ObsController.Create(gameObject, new ObsSettings
+{
+    enabled = true,
+    url = "ws://127.0.0.1:4455",       // empty means this default
+    password = "the OBS websocket password",
+    startingScene = "Starting Soon",   // optional: the "starting" shortcut
+    gameScene = "My Game"              // optional: the "game" shortcut; going live switches to it first
+});
+// Returns null when settings.enabled is false.
+
+string status = obs.StatusLine;        // "OBS: connected, live, scene My Game" — short, for on screen
+```
+
+OBS can start before or after the game: the controller retries quietly and logs a problem once. It
+never logs or shows the password.
+
+`ObsChatCommands` gives the broadcaster chat commands without tying them to a command router. With
+prefix `"dd"`: `!ddscene <starting|game|scene name>` (part of a name works if it's unique),
+`!ddgolive`, `!ddend` (asks to confirm: `!ddend` again within 15 s, `!ddend confirm`, or
+`!ddend cancel`) and `!ddobs` (status). Let only the broadcaster run them; they're the only way the
+stream should start or stop.
+
+```csharp
+var commands = new ObsChatCommands(obs, "dd");
+if (message.IsBroadcaster && commands.Handles(command))
+    reply = await commands.Run(command, args, Time.realtimeSinceStartupAsDouble);
+```
+
 ## Testing without going live
 
 Use `LocalDebugLiveChatClient` in place of the Twitch client. It draws a chat box in the
@@ -210,6 +253,7 @@ bottom-left corner of the Game view: type `!jump 3` and press Enter. Bot replies
 | `LiveChat.Commands` | Router, handlers, parser, permissions |
 | `LiveChat.Twitch` | `TwitchLiveChatClient`, and the pieces it's built from: `TwitchAccount`, `TwitchOAuth`, `TwitchHelix`, `EventSubSocket`, `EventSubTranslator`, `ChatSendQueue`, `TwitchTokenStore` |
 | `LiveChat.YouTube` | YouTube client (stub) |
+| `LiveChat.Obs` | OBS control: `ObsController`, `ObsSettings`, `ObsChatCommands`, and the obs-websocket client they're built on |
 
 ## Tests
 

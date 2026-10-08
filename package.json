@@ -1,8 +1,8 @@
 {
   "name": "com.cfomodz.livechat",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "displayName": "Live Chat",
-  "description": "Live chat clients (Twitch via EventSub and Helix, with predictions and polls; YouTube stub; local debug) and a chat command router for Unity.",
+  "description": "Live chat clients (Twitch via EventSub and Helix, with predictions and polls; YouTube stub; local debug), a chat command router and OBS control for Unity.",
   "unity": "2022.3",
   "dependencies": {
     "com.unity.nuget.newtonsoft-json": "3.2.1"
