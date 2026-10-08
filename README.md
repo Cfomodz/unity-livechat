@@ -4,8 +4,8 @@ Live chat clients and a chat command router for Unity (`com.cfomodz.livechat`).
 
 - **Twitch:** chat, bits, subs, gifts, raids, follows and channel points through
   [EventSub](https://dev.twitch.tv/docs/eventsub/) over WebSocket and the Helix API, with a
-  separate bot account. No server and no client secret: accounts log in with Twitch's device
-  code flow.
+  separate bot account, plus predictions, polls, and user and stream lookups. No server and no
+  client secret: accounts log in with Twitch's device code flow.
 - **Local debug client:** an on-screen chat box, plus simulated subs, raids and redemptions, for
   testing without going live.
 - **Command router:** parses `!command args` messages and dispatches them to
@@ -24,7 +24,7 @@ Add the package to your project's `Packages/manifest.json`:
 ```json
 {
   "dependencies": {
-    "com.cfomodz.livechat": "https://github.com/Cfomodz/unity-livechat.git#v0.2.0"
+    "com.cfomodz.livechat": "https://github.com/Cfomodz/unity-livechat.git#v0.3.0"
   }
 }
 ```
@@ -130,6 +130,9 @@ fires when they change. Errors are raised on `Error`.
 | Who's in chat (`IsInChat`) | The bot to be a moderator (`moderator:read:chatters`) |
 | Channel points | The broadcaster's login (`channel:manage:redemptions`) and an affiliate or partner channel |
 | Stream title, category and tags | The broadcaster's login (`channel:manage:broadcast`) |
+| Predictions | `Predictions` on: the broadcaster's login (`channel:manage:predictions`) and an affiliate or partner channel |
+| Polls | `Polls` on: the broadcaster's login (`channel:manage:polls`) and an affiliate or partner channel |
+| User and stream lookups | The bot's login |
 
 Only the app that created a reward can fulfil, refund, hide or delete it, so let the game create
 its rewards with `await twitch.EnsureRewardsAsync(specs)` once `ChannelPointsConnected` fires. It
@@ -148,6 +151,32 @@ Set `StreamInfo` before `Connect` and the title, category (by name, matched exac
 and tags are applied as soon as the broadcaster logs in; call `SetStreamInfoAsync` to change them
 later. Tags replace the channel's tags: up to 10, each up to 25 letters or digits.
 `StreamInfoStatus` says whether it worked.
+
+### Predictions and polls
+
+Turn on `Predictions` or `Polls` before `Connect` and the broadcaster's login asks for them too.
+
+```csharp
+twitch.Predictions = true;
+twitch.Polls = true;
+
+TwitchPrediction prediction = await twitch.CreatePredictionAsync("Will the king survive?", new[] { "Yes", "No" }, 120);
+// ... later
+await twitch.ResolvePredictionAsync(prediction.Id, prediction.Outcomes[0].Id); // or CancelPredictionAsync to refund
+
+await twitch.CreatePollAsync("Funniest answer?", new[] { "alice", "bob", "carol" }, 60);
+TwitchPoll poll = (await twitch.GetPollsAsync(1))[0];
+```
+
+Twitch runs one prediction at a time; `CancelOpenPredictionsAsync` cancels any left open, for
+example by an earlier run that quit before resolving it. Twitch's limits: a prediction has a title
+of up to 45 characters, 2 to 10 outcomes of up to 25, and 30 to 1800 seconds to bet; a poll has a
+title of up to 60 characters, 2 to 5 choices of up to 25, and lasts 15 to 1800 seconds.
+
+### Users and streams
+
+`GetUserByLoginAsync`, `GetUserByIdAsync` (with `ProfileImageUrl`) and `GetStreamAsync` (title,
+category, viewer count, start time; null when the channel isn't live) use the bot's login.
 
 ### Rate limits
 

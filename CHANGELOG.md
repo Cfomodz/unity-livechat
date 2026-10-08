@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.0
+
+- **Predictions.** Turn on `Predictions` and the broadcaster's login asks for
+  `channel:manage:predictions`. `CreatePredictionAsync`, `GetPredictionsAsync`,
+  `ResolvePredictionAsync`, `CancelPredictionAsync`, `LockPredictionAsync`, and
+  `CancelOpenPredictionsAsync` to clear predictions an earlier run left open.
+- **Polls.** Turn on `Polls` and the broadcaster's login asks for `channel:manage:polls`.
+  `CreatePollAsync`, `GetPollsAsync` and `EndPollAsync`.
+- **Users and streams.** `GetUserByLoginAsync`, `GetUserByIdAsync` and `GetStreamAsync` on the
+  client, through the bot's login.
+- New Helix calls: `GetUsersAsync`, `GetUserByIdAsync`, `GetStreamAsync`, `CreatePredictionAsync`,
+  `GetPredictionsAsync`, `EndPredictionAsync`, `CreatePollAsync`, `GetPollsAsync`, `EndPollAsync`,
+  and `UserFrom`, `StreamFrom`, `PredictionFrom` and `PollFrom` to read Twitch's JSON.
+- A saved broadcaster login asks to log in again once when `Predictions` or `Polls` is turned on.
+
 ## 0.2.4
 
 - `TwitchLiveChatClient.IsInChat(userId)`: whether a viewer is in the channel's chat, from
