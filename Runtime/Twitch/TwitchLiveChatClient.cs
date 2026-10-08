@@ -33,6 +33,8 @@ namespace LiveChat.Twitch
         private const double ChattersEverySeconds = 60;
         public static readonly string[] ChannelPointsScopes = { "channel:manage:redemptions" };
         public static readonly string[] StreamInfoScopes = { "channel:manage:broadcast" };
+        public static readonly string[] PredictionsScopes = { "channel:manage:predictions" };
+        public static readonly string[] PollsScopes = { "channel:manage:polls" };
         private const double ValidateEverySeconds = 3600;
         private static readonly TimeSpan QuitTimeout = TimeSpan.FromSeconds(3);
 
@@ -42,6 +44,10 @@ namespace LiveChat.Twitch
         [SerializeField] private string _botLogin;
         [Tooltip("Have the broadcaster log in too, to receive channel point redemptions.")]
         [SerializeField] private bool _channelPoints;
+        [Tooltip("Have the broadcaster log in too, to run predictions.")]
+        [SerializeField] private bool _predictions;
+        [Tooltip("Have the broadcaster log in too, to run polls.")]
+        [SerializeField] private bool _polls;
         [Tooltip("Title, category and tags to set when the broadcaster logs in. Leave empty to leave the stream info alone.")]
         [SerializeField] private TwitchStreamInfo _streamInfo = new TwitchStreamInfo();
         [Tooltip("Where tokens are saved. Keep it out of version control.")]
@@ -69,14 +75,16 @@ namespace LiveChat.Twitch
         public string ClientId { get => _clientId; set => _clientId = value; }
         public string BotLogin { get => _botLogin; set => _botLogin = value; }
         public bool ChannelPoints { get => _channelPoints; set => _channelPoints = value; }
+        public bool Predictions { get => _predictions; set => _predictions = value; }
+        public bool Polls { get => _polls; set => _polls = value; }
         /// <summary>Applied once the broadcaster logs in. Setting any field makes the broadcaster log in.</summary>
         public TwitchStreamInfo StreamInfo { get => _streamInfo; set => _streamInfo = value ?? new TwitchStreamInfo(); }
         public string TokenFilePath { get => _tokenFilePath; set => _tokenFilePath = value; }
         /// <summary>Hide the rewards <see cref="EnsureRewardsAsync"/> showed when the app quits, so viewers can't redeem them while it isn't running.</summary>
         public bool HideRewardsOnQuit { get; set; } = true;
 
-        /// <summary>The broadcaster logs in for channel points, stream info, or both.</summary>
-        public bool NeedsBroadcaster => _channelPoints || !_streamInfo.IsEmpty;
+        /// <summary>The broadcaster logs in for channel points, stream info, predictions or polls.</summary>
+        public bool NeedsBroadcaster => _channelPoints || _predictions || _polls || !_streamInfo.IsEmpty;
         /// <summary>What happened to <see cref="StreamInfo"/>, for an on-screen status; null if there's none to set.</summary>
         public string StreamInfoStatus { get; private set; }
 
@@ -338,6 +346,10 @@ namespace LiveChat.Twitch
                     scopes.AddRange(ChannelPointsScopes);
                 if (!_streamInfo.IsEmpty)
                     scopes.AddRange(StreamInfoScopes);
+                if (_predictions)
+                    scopes.AddRange(PredictionsScopes);
+                if (_polls)
+                    scopes.AddRange(PollsScopes);
                 _broadcasterAccount = new TwitchAccount("broadcaster", _clientId, scopes, store) { ExpectedLogin = Broadcaster.Login };
                 await LogInAsync(_broadcasterAccount, "broadcaster", ct);
                 if (!_streamInfo.IsEmpty)
@@ -571,6 +583,88 @@ namespace LiveChat.Twitch
             if (chatters == null || string.IsNullOrEmpty(userId))
                 return null;
             return chatters.Contains(userId);
+        }
+
+        /// <summary>Looks up a user by login; null if there's none. Needs the bot's login.</summary>
+        public Task<TwitchUser> GetUserByLoginAsync(string login) => _helix.GetUserByLoginAsync(RequireBot(), login, Token);
+
+        /// <summary>Looks up a user by ID; null if there's none. Needs the bot's login.</summary>
+        public Task<TwitchUser> GetUserByIdAsync(string userId) => _helix.GetUserByIdAsync(RequireBot(), userId, Token);
+
+        /// <summary>The channel's stream, or null when it isn't live. Needs the bot's login.</summary>
+        public Task<TwitchStream> GetStreamAsync() => _helix.GetStreamAsync(RequireBot(), Broadcaster.Id, Token);
+
+        /// <summary>
+        /// Starts a prediction: a title of up to 45 characters, 2 to 10 outcomes of up to 25, and 30 to
+        /// 1800 seconds to bet. Needs <see cref="Predictions"/> and an affiliate or partner channel.
+        /// </summary>
+        public Task<TwitchPrediction> CreatePredictionAsync(string title, IEnumerable<string> outcomes, int predictionWindowSeconds) =>
+            _helix.CreatePredictionAsync(RequireBroadcaster(PredictionsScopes, nameof(Predictions)), title, outcomes, predictionWindowSeconds, Token);
+
+        /// <summary>The channel's most recent predictions, newest first (at most 25).</summary>
+        public Task<List<TwitchPrediction>> GetPredictionsAsync(int first = 20) =>
+            _helix.GetPredictionsAsync(RequireBroadcaster(PredictionsScopes, nameof(Predictions)), first, Token);
+
+        /// <summary>Resolves a prediction in favor of <paramref name="winningOutcomeId"/>, paying out the points.</summary>
+        public Task ResolvePredictionAsync(string predictionId, string winningOutcomeId) =>
+            _helix.EndPredictionAsync(RequireBroadcaster(PredictionsScopes, nameof(Predictions)), predictionId, TwitchPredictionStatus.Resolved, winningOutcomeId, Token);
+
+        /// <summary>Cancels a prediction and refunds the points.</summary>
+        public Task CancelPredictionAsync(string predictionId) =>
+            _helix.EndPredictionAsync(RequireBroadcaster(PredictionsScopes, nameof(Predictions)), predictionId, TwitchPredictionStatus.Canceled, null, Token);
+
+        /// <summary>Closes betting on a prediction without resolving it.</summary>
+        public Task LockPredictionAsync(string predictionId) =>
+            _helix.EndPredictionAsync(RequireBroadcaster(PredictionsScopes, nameof(Predictions)), predictionId, TwitchPredictionStatus.Locked, null, Token);
+
+        /// <summary>
+        /// Cancels every prediction still taking bets or waiting for a result, refunding the points.
+        /// Twitch runs one prediction at a time, so call this before starting one if an earlier run
+        /// may have left one open. Returns how many were canceled.
+        /// </summary>
+        public async Task<int> CancelOpenPredictionsAsync()
+        {
+            int canceled = 0;
+            foreach (TwitchPrediction prediction in await GetPredictionsAsync())
+            {
+                if (prediction.Status != TwitchPredictionStatus.Active && prediction.Status != TwitchPredictionStatus.Locked)
+                    continue;
+                await CancelPredictionAsync(prediction.Id);
+                canceled++;
+            }
+            return canceled;
+        }
+
+        /// <summary>
+        /// Starts a poll: a title of up to 60 characters, 2 to 5 choices of up to 25, and 15 to 1800
+        /// seconds. Needs <see cref="Polls"/> and an affiliate or partner channel.
+        /// </summary>
+        public Task<TwitchPoll> CreatePollAsync(string title, IEnumerable<string> choices, int durationSeconds) =>
+            _helix.CreatePollAsync(RequireBroadcaster(PollsScopes, nameof(Polls)), title, choices, durationSeconds, Token);
+
+        /// <summary>The channel's most recent polls, newest first (at most 20).</summary>
+        public Task<List<TwitchPoll>> GetPollsAsync(int first = 20) =>
+            _helix.GetPollsAsync(RequireBroadcaster(PollsScopes, nameof(Polls)), first, Token);
+
+        /// <summary>Ends a poll early. With <paramref name="hideResults"/>, viewers stop seeing the results.</summary>
+        public Task EndPollAsync(string pollId, bool hideResults = false) =>
+            _helix.EndPollAsync(RequireBroadcaster(PollsScopes, nameof(Polls)), pollId,
+                hideResults ? TwitchPollStatus.Archived : TwitchPollStatus.Terminated, Token);
+
+        private CancellationToken Token => _cts?.Token ?? CancellationToken.None;
+
+        private TwitchAccount RequireBot()
+        {
+            if (_bot == null || !_bot.IsAuthorized || Broadcaster == null)
+                throw new InvalidOperationException("Not logged in to Twitch yet.");
+            return _bot;
+        }
+
+        private TwitchAccount RequireBroadcaster(string[] scopes, string feature)
+        {
+            if (_broadcasterAccount == null || !_broadcasterAccount.IsAuthorized || !scopes.All(_broadcasterAccount.Scopes.Contains))
+                throw new InvalidOperationException($"{feature} need the broadcaster's login: turn on {feature} before calling Connect.");
+            return _broadcasterAccount;
         }
 
         private async Task RefreshChattersAsync(CancellationToken ct)
