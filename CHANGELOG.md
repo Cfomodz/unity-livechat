@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0
+
+- **OBS control** (`LiveChat.Obs`), moved here from chat-minigames so games share one copy:
+  `ObsController` switches scenes and starts or stops the stream through obs-websocket v5, retrying
+  quietly while OBS isn't running, with a short `StatusLine` for on screen. `ObsSettings` holds the
+  URL, password (never logged or shown) and the optional starting and game scenes.
+- `ObsChatCommands`: the broadcaster's scene, go live, end (with confirmation) and status commands
+  under a prefix of the game's choosing, without needing `ChatCommandRouter`.
+- EditMode tests for the OBS protocol, scene matching, the stop confirmation and the commands.
+
 ## 0.3.0
 
 - **Predictions.** Turn on `Predictions` and the broadcaster's login asks for
